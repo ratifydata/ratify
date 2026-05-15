@@ -1,11 +1,10 @@
 <div align="center">
 
-<!-- 
-  LOGO INSTRUCTIONS:
-  Once you have a logo designed, save it to docs/assets/logo.png
-  in the repository and uncomment the line below:
-  <img src="docs/assets/logo.png" alt="Ratify Logo" width="200" />
--->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/ratifydata-dark-full.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/ratifydata-light-full.png">
+  <img alt="Ratify Logo" src="docs/assets/ratifydata-light-full.png" width="450">
+</picture>
 
 # Ratify
 
@@ -271,7 +270,7 @@ BREACH_DETECTION_INTERVAL=1h
 - Audit trail is **append-only**, no record can be modified or deleted
 - **No telemetry** sent to external services without explicit opt-in
 
-To report a security vulnerability, please email [lewiskunta5@gmail.com]
+To report a security vulnerability, please email [This email](mailto:lewiskunta5@gmail.com)
 rather than opening a public issue.
 
 ---
