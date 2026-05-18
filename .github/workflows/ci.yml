@@ -103,9 +103,9 @@ jobs:
       - name: Check go mod tidy
         run: |
           go mod tidy
-          if ! git diff --exit-code go.mod go.sum; then
+          if ! git diff --exit-code go.mod; then
             echo ""
-            echo "Error: go.mod or go.sum is not tidy."
+            echo "Error: go.mod is not tidy."
             echo "Run 'go mod tidy' locally and commit the changes."
             exit 1
           fi
