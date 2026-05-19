@@ -1,0 +1,302 @@
+name: CI
+
+# When this pipeline runs:
+# - On every pull request targeting main
+# - On every push to main (after a PR is merged)
+# - On a schedule: every Monday at 08:00 UTC
+#   This catches dependency vulnerabilities discovered after
+#   the last code change, even when nothing new was committed.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 8 * * 1'
+
+# If a new run is triggered while one is already running for
+# the same branch and workflow, cancel the old run. This prevents
+# a queue of stale runs when someone pushes multiple commits quickly.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Define versions once here. When upgrading Go or Node, change
+# the value here and it applies to every job automatically.
+env:
+  GO_VERSION: '1.24'
+  NODE_VERSION: '20'
+  GOLANGCI_LINT_VERSION: 'v2.1.6'
+  MIGRATE_VERSION: 'v4.17.0'
+  COVERAGE_THRESHOLD: '0'
+
+jobs:
+
+  # ---------------------------------------------------------------
+  # Job 1: Backend
+  # Lint, dependency integrity, migrations, tests, coverage, build
+  # ---------------------------------------------------------------
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ratify
+          POSTGRES_PASSWORD: ratify
+          POSTGRES_DB: ratify_test
+        ports:
+          - 5432:5432
+        # GitHub waits for this health check to pass before
+        # running any job steps. Without it, tests start before
+        # PostgreSQL is ready and fail with connection errors.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Full history is needed for secret scanning and
+          # accurate diff comparisons against the base branch.
+          fetch-depth: 0
+
+      - name: Set up Go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          # Caches the module download cache between runs.
+          # Makes subsequent runs faster by avoiding re-downloading
+          # packages that have not changed.
+          cache: true
+
+      - name: Run linter
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+
+      - name: Install golang-migrate ${{ env.MIGRATE_VERSION }}
+        run: |
+          curl -L \
+            https://github.com/golang-migrate/migrate/releases/download/${{ env.MIGRATE_VERSION }}/migrate.linux-amd64.tar.gz \
+            | tar xvz
+          sudo mv migrate /usr/local/bin/migrate
+
+      - name: Download Go dependencies
+        run: go mod download
+
+      # Verifies that the checksums in go.sum match the actual
+      # downloaded modules. Catches corruption or tampering.
+      - name: Verify dependency integrity
+        run: go mod verify
+
+      # Confirms go.mod and go.sum are tidy. If a developer added
+      # or removed an import without running go mod tidy, this
+      # step will fail with a clear message explaining what to do.
+      - name: Check go mod tidy
+        run: |
+          go mod tidy
+          if ! git diff --exit-code go.mod; then
+            echo ""
+            echo "Error: go.mod is not tidy."
+            echo "Run 'go mod tidy' locally and commit the changes."
+            exit 1
+          fi
+
+
+
+      # Run all pending migrations against the test database so
+      # the schema is correct before tests start.
+      - name: Run database migrations
+        run: |
+          migrate \
+            -path ./migrations \
+            -database "postgresql://ratify:ratify@localhost:5432/ratify_test?sslmode=disable" \
+            up
+        env:
+          DATABASE_URL: postgresql://ratify:ratify@localhost:5432/ratify_test?sslmode=disable
+
+      # -race detects race conditions: concurrent read/write bugs
+      #   that only appear sometimes under normal conditions.
+      # -timeout 5m kills any test that hangs longer than 5 minutes.
+      # -coverprofile records which lines are hit for the coverage check.
+      # -covermode=atomic is required when using -race.
+      - name: Run tests
+        run: |
+          go test \
+            -v \
+            -race \
+            -timeout 5m \
+            -coverprofile=coverage.out \
+            -covermode=atomic \
+            ./...
+        env:
+          DATABASE_URL: postgresql://ratify:ratify@localhost:5432/ratify_test?sslmode=disable
+          ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+          JWT_SECRET: ci-test-jwt-secret-not-for-production
+          ENVIRONMENT: test
+          BREACH_DETECTION_INTERVAL: '@every 1h'
+
+      # Read the total coverage percentage and fail the build if
+      # it is below the threshold defined in the env block above.
+      - name: Check test coverage
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out \
+            | grep -E '^total:' \
+            | awk '{print $3}' \
+            | sed 's/%//')
+          echo "Total test coverage: ${COVERAGE}%"
+          echo "Minimum required:    ${{ env.COVERAGE_THRESHOLD }}%"
+          if awk "BEGIN {exit !($COVERAGE < ${{ env.COVERAGE_THRESHOLD }})}"; then
+            echo ""
+            echo "Error: coverage is below the minimum threshold."
+            echo "Add tests for any new code before merging."
+            exit 1
+          fi
+
+      # Upload the coverage file so it can be downloaded from
+      # the Actions run page for detailed inspection.
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: coverage.out
+          retention-days: 7
+
+      # Build both binaries to confirm the code compiles cleanly.
+      # Output is discarded — we only care that the build succeeds.
+      - name: Build server binary
+        run: go build -o /dev/null ./cmd/server
+
+      - name: Build CLI binary
+        run: go build -o /dev/null ./cmd/cli
+
+
+  # ---------------------------------------------------------------
+  # Job 2: Frontend
+  # Lint, TypeScript type check, production build
+  # ---------------------------------------------------------------
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      # npm ci is the CI-appropriate install command.
+      # Unlike npm install, it:
+      # - Installs exactly what is in package-lock.json
+      # - Fails if package-lock.json does not match package.json
+      # - Never updates the lock file
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      # TypeScript type checking without emitting output files.
+      # Catches type errors that ESLint does not catch.
+      - name: Run type check
+        run: npm run type-check
+
+      # Build the production bundle. Catches import errors, missing
+      # modules, and Vite configuration issues that only surface
+      # at build time, not during development.
+      - name: Build production bundle
+        run: npm run build
+
+
+  # ---------------------------------------------------------------
+  # Job 3: Security
+  # Go vulnerability scanning and secret detection
+  # ---------------------------------------------------------------
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # govulncheck is the official Go vulnerability scanner.
+      # Unlike simple dependency scanners, it performs static
+      # analysis to determine whether your code actually calls
+      # the vulnerable function — not just whether the package
+      # is present somewhere in the dependency tree.
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run Go vulnerability check
+        run: govulncheck ./...
+
+      # TruffleHog scans git history for accidentally committed
+      # secrets. On a PR it compares the PR branch against the
+      # base branch. On push to main it scans recent commits.
+      # --only-verified means it only reports secrets it can
+      # confirm are real (by attempting to use them) — this
+      # reduces false positives significantly.
+      - name: Scan for committed secrets
+        uses: trufflesecurity/trufflehog@v3.88.8
+        with:
+          path: ./
+          base: ${{ github.event.pull_request.base.sha || github.event.before }}
+          head: ${{ github.sha }}
+          extra_args: --only-verified
+
+
+  # ---------------------------------------------------------------
+  # Job 4: PR title format check
+  # Ensures PR titles follow Conventional Commits.
+  # Only runs on pull request events.
+  # ---------------------------------------------------------------
+  lint-pr-title:
+    name: PR Title Format
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 2
+
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # These must match the commit types listed in CONTRIBUTING.md.
+          types: |
+            feat
+            fix
+            docs
+            setup
+            test
+            refactor
+            perf
+            chore
+          requireScope: false
