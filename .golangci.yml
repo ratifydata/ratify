@@ -8,6 +8,9 @@ linters:
   enable:
     - errcheck
     - govet
+
+formatters:
+  enable:
     - gofmt
 
 issues:
