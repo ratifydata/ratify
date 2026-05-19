@@ -1,3 +1,3 @@
 module github.com/ratifydata/ratify
 
-go 1.26
+go 1.24
