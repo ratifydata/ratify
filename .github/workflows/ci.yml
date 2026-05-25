@@ -109,8 +109,6 @@ jobs:
             exit 1
           fi
 
-
-
       # Run all pending migrations against the test database so
       # the schema is correct before tests start.
       - name: Run database migrations
@@ -214,6 +212,9 @@ jobs:
       - name: Run ESLint
         run: npm run lint
 
+      - name: Check formatting
+        run: npm run format:check
+
       # TypeScript type checking without emitting output files.
       # Catches type errors that ESLint does not catch.
       - name: Run type check
@@ -299,4 +300,4 @@ jobs:
             refactor
             perf
             chore
-          requireScope: false
+            requireScope: false
