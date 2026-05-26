@@ -1,0 +1,24 @@
+# =============================================================================
+# Ratify — Development overrides
+# Use this with: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Changes from the base docker-compose.yml:
+# - Uses Dockerfile.dev instead of Dockerfile (live reload via Air)
+# - Mounts source code as a volume so changes are reflected immediately
+# - Enables more verbose logging
+# =============================================================================
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    volumes:
+      # Mount the entire project into the container.
+      # Air watches this directory and recompiles on changes.
+      - .:/app
+      # Prevent the container's Go module cache from being
+      # overwritten by the host's directory.
+      - /app/tmp
+    environment:
+      ENVIRONMENT: development

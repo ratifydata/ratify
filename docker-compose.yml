@@ -1,0 +1,77 @@
+# =============================================================================
+# Ratify — Docker Compose
+# Starts the Ratify server and its PostgreSQL database.
+#
+# Usage:
+#   docker compose up          — start everything (production image)
+#   docker compose up --build  — rebuild and start
+#   docker compose down        — stop and remove containers
+#   docker compose down -v     — stop and remove containers + database volume
+#
+# For active development with live reload:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — Ratify's metadata database
+  # Stores contracts, proposals, teams, audit logs, and encrypted credentials.
+  # This is NOT the database Ratify monitors — it is Ratify's own database.
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ratify
+      POSTGRES_PASSWORD: ratify
+      POSTGRES_DB: ratify
+    ports:
+      # Expose on localhost so you can connect with a database client
+      # (e.g. TablePlus, DBeaver, psql) during local development.
+      # Remove this in production — the app container connects internally.
+      - "5432:5432"
+    volumes:
+      # Persist database data across container restarts.
+      # Without this, all data is lost when the container stops.
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # Wait for PostgreSQL to be ready before starting the app.
+      # The app container will not start until this passes.
+      test: ["CMD-SHELL", "pg_isready -U ratify -d ratify"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Ratify app — the compiled server binary
+  # Runs migrations on startup, then starts the HTTP server.
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    env_file:
+      # Load all environment variables from .env
+      # Copy .env.example to .env and fill in real values
+      - .env
+    environment:
+      # Override DATABASE_URL so the app connects to the postgres
+      # service by its service name, not localhost.
+      DATABASE_URL: postgresql://ratify:ratify@postgres:5432/ratify?sslmode=disable
+    depends_on:
+      postgres:
+        # Only start the app after PostgreSQL health check passes.
+        condition: service_healthy
+
+# =============================================================================
+# Volumes
+# Named volumes persist data across container restarts.
+# =============================================================================
+volumes:
+  postgres_data:
+    driver: local
