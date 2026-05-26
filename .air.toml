@@ -1,0 +1,35 @@
+# Air — Go live reload configuration
+# Documentation: https://github.com/air-verse/air
+
+root = "."
+testdata_dir = "testdata"
+tmp_dir = "tmp"
+
+[build]
+  # The command Air runs to rebuild when files change.
+  cmd = "go build -o ./tmp/ratify-server ./cmd/server"
+  # The binary Air runs after a successful build.
+  bin = "./tmp/ratify-server"
+  # Files that trigger a rebuild when changed.
+  include_ext = ["go"]
+  # Directories Air ignores.
+  exclude_dir = ["frontend", "tmp", "vendor", "testdata"]
+  # Kill the running process before rebuilding.
+  kill_delay = "200ms"
+  # Show the build log when a rebuild is triggered.
+  log = "build-errors.log"
+
+[log]
+  # Show timestamps in Air's log output.
+  time = true
+
+[color]
+  # Colour the different log levels differently.
+  main = "magenta"
+  watcher = "cyan"
+  build = "yellow"
+  runner = "green"
+
+[misc]
+  # Delete tmp dir on exit.
+  clean_on_exit = true

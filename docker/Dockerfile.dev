@@ -1,0 +1,24 @@
+# =============================================================================
+# Ratify — Development Dockerfile
+# Uses Air for live reload — the server restarts automatically when
+# Go files change. Mount the source code as a volume for this to work.
+# =============================================================================
+
+FROM golang:1.24-alpine
+
+# Install air (live reload) and other development tools.
+RUN apk add --no-cache ca-certificates git curl && \
+    go install github.com/air-verse/air@latest
+
+WORKDIR /app
+
+# Copy dependency files and download dependencies.
+COPY go.mod go.sum* ./
+RUN go mod download
+
+# The source code is mounted as a volume at runtime (see docker-compose.yml).
+# We do not copy it here — air watches the mounted directory directly.
+
+EXPOSE 8080
+
+CMD ["air", "-c", ".air.toml"]
