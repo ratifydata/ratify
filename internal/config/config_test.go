@@ -23,9 +23,14 @@ func TestLoad_Defaults(t *testing.T) {
 }
 
 func TestLoad_EnvironmentVariableOverridesDefault(t *testing.T) {
-	// Set an environment variable and confirm it overrides the default.
-	os.Setenv("PORT", "9090")
-	defer os.Unsetenv("PORT")
+	if err := os.Setenv("PORT", "9090"); err != nil {
+		t.Fatalf("failed to set env var: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("PORT"); err != nil {
+			t.Fatalf("failed to unset env var: %v", err)
+		}
+	}()
 
 	cfg, err := Load()
 	if err != nil {
@@ -38,10 +43,14 @@ func TestLoad_EnvironmentVariableOverridesDefault(t *testing.T) {
 }
 
 func TestLoad_InvalidEncryptionKey(t *testing.T) {
-	// Set an encryption key that is too short.
-	// Load() should return an error.
-	os.Setenv("ENCRYPTION_KEY", "tooshort")
-	defer os.Unsetenv("ENCRYPTION_KEY")
+	if err := os.Setenv("ENCRYPTION_KEY", "tooshort"); err != nil {
+		t.Fatalf("failed to set env var: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("ENCRYPTION_KEY"); err != nil {
+			t.Fatalf("failed to unset env var: %v", err)
+		}
+	}()
 
 	_, err := Load()
 	if err == nil {
