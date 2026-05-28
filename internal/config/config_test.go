@@ -5,9 +5,48 @@ import (
 	"testing"
 )
 
+// clearConfigEnv unsets configuration environment variables for the scope of the test.
+// It backs up original values and restores them afterward using t.Cleanup to prevent
+// leaking side effects into downstream tests (e.g., breaking database connections).
+func clearConfigEnv(t *testing.T) {
+	t.Helper()
+	vars := []string{
+		"PORT", "ENVIRONMENT", "DATABASE_URL",
+		"ENCRYPTION_KEY", "JWT_SECRET",
+		"SMTP_HOST", "SMTP_PORT", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_FROM",
+		"BREACH_DETECTION_INTERVAL",
+	}
+
+	// 1. Capture and back up current environment states
+	originalValues := make(map[string]string)
+	for _, v := range vars {
+		if val, exists := os.LookupEnv(v); exists {
+			originalValues[v] = val
+		}
+	}
+
+	// 2. Clear out the environment variables for this test context
+	for _, v := range vars {
+		if err := os.Unsetenv(v); err != nil {
+			t.Fatalf("failed to unset %s: %v", v, err)
+		}
+	}
+
+	// 3. Register a cleanup hook to seamlessly restore original state when this test exits
+	t.Cleanup(func() {
+		for _, v := range vars {
+			if originalVal, wasSet := originalValues[v]; wasSet {
+				_ = os.Setenv(v, originalVal)
+			} else {
+				_ = os.Unsetenv(v)
+			}
+		}
+	})
+}
+
 func TestLoad_Defaults(t *testing.T) {
-	// Load with no .env file and no environment variables set.
-	// Should succeed using defaults.
+	clearConfigEnv(t)
+
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load() with defaults failed: %v", err)
@@ -23,14 +62,11 @@ func TestLoad_Defaults(t *testing.T) {
 }
 
 func TestLoad_EnvironmentVariableOverridesDefault(t *testing.T) {
+	clearConfigEnv(t)
+
 	if err := os.Setenv("PORT", "9090"); err != nil {
 		t.Fatalf("failed to set env var: %v", err)
 	}
-	defer func() {
-		if err := os.Unsetenv("PORT"); err != nil {
-			t.Fatalf("failed to unset env var: %v", err)
-		}
-	}()
 
 	cfg, err := Load()
 	if err != nil {
@@ -43,14 +79,11 @@ func TestLoad_EnvironmentVariableOverridesDefault(t *testing.T) {
 }
 
 func TestLoad_InvalidEncryptionKey(t *testing.T) {
+	clearConfigEnv(t)
+
 	if err := os.Setenv("ENCRYPTION_KEY", "tooshort"); err != nil {
 		t.Fatalf("failed to set env var: %v", err)
 	}
-	defer func() {
-		if err := os.Unsetenv("ENCRYPTION_KEY"); err != nil {
-			t.Fatalf("failed to unset env var: %v", err)
-		}
-	}()
 
 	_, err := Load()
 	if err == nil {
