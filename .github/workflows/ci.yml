@@ -24,9 +24,9 @@ concurrency:
 # Define versions once here. When upgrading Go or Node, change
 # the value here and it applies to every job automatically.
 env:
-  GO_VERSION: '1.24'
+  GO_VERSION: '1.25'
   NODE_VERSION: '20'
-  GOLANGCI_LINT_VERSION: 'v2.1.6'
+  GOLANGCI_LINT_VERSION: 'v2.4.0'
   MIGRATE_VERSION: 'v4.17.0'
   COVERAGE_THRESHOLD: '0'
 
@@ -139,7 +139,7 @@ jobs:
           ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
           JWT_SECRET: ci-test-jwt-secret-not-for-production
           ENVIRONMENT: test
-          BREACH_DETECTION_INTERVAL: '@every 1h'
+          BREACH_DETECTION_INTERVAL: '1h'
 
       # Read the total coverage percentage and fail the build if
       # it is below the threshold defined in the env block above.
