@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/ratifydata/ratify/internal/config"
+	"github.com/ratifydata/ratify/internal/db"
 )
 
 func main() {
@@ -16,9 +17,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Structured JSON logging — standard for production services.
-	// In development, this is readable. In production, log
-	// aggregation tools (Datadog, Loki) can parse it.
+	// Set up structured JSON logging.
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
@@ -30,6 +29,15 @@ func main() {
 		"breach_interval", cfg.BreachDetectionInterval,
 	)
 
-	// Placeholder — the real server implementation would go here.
+	// Run database migrations before the server starts.
+	// All pending migrations are applied in order. Already-applied
+	// migrations are skipped. The server will not start if migrations fail.
+	slog.Info("running database migrations")
+	if err := db.RunMigrations(cfg.DatabaseURL); err != nil {
+		slog.Error("database migration failed", "error", err)
+		os.Exit(1)
+	}
+
+	// Placeholder — the real HTTP server starts in Card 15.
 	fmt.Printf("Ratify server ready on port %d\n", cfg.Port)
 }
