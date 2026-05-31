@@ -1,0 +1,69 @@
+name: Feature request
+description: Suggest something new or an improvement to existing behaviour
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature requests are most useful when they are grounded in a real problem.
+        "It would be cool if..." requests are harder to act on than "I keep running into this situation and here is what I need."
+
+        If you are not sure whether something is worth requesting, bring it up in [Discord](https://discord.gg/RVU3cdRs9z) first.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you running into
+      description: Describe the situation that prompted this request. What are you trying to do, and what is getting in the way?
+      placeholder: |
+        When I have 20+ consumers registered on a contract, the proposal notification emails
+        are going to individual addresses. I need a way to send to a team distribution list
+        instead of enumerating every person.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: What you would like to see
+      description: Describe the behaviour you want. Be specific about the interface — CLI command, API endpoint, UI element, config option, whatever is relevant.
+      placeholder: |
+        Allow a team to have a single notification_email field that receives all proposal
+        notifications for that team, instead of sending to each team member individually.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you have tried instead
+      description: How are you working around this today? Understanding the workaround helps us understand the severity of the gap.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area of the tool does this relate to
+      options:
+        - Contract authoring
+        - Change proposals
+        - Consumer notifications
+        - Breach detection
+        - Audit trail
+        - CLI
+        - Web UI
+        - API
+        - Docker / deployment
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I have searched existing issues and this has not been requested before
+          required: true
+        - label: I have checked the roadmap in the README and this is not already planned
+          required: false

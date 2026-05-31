@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discord - quick questions
+    url: https://discord.gg/RVU3cdRs9z
+    about: For quick questions, Discord is faster than a GitHub issue.
+  - name: Security vulnerability
+    url: https://github.com/ratifydata/ratify/security/advisories/new
+    about: Report security vulnerabilities privately using GitHub's advisory system.

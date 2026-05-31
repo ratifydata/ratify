@@ -1,0 +1,44 @@
+name: Question
+description: Something is unclear or you need help understanding how Ratify works
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For quick questions, [Discord](https://discord.gg/RVU3cdRs9z) is faster than GitHub issues.
+
+        Use this form if your question is detailed enough that it might be worth turning into documentation once answered.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: What would you like to understand
+      description: Ask your question as specifically as you can. Include what you have already read or tried.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: What you have already tried or read
+      description: This helps avoid repeating things you already know and gets to the useful part faster.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area does your question relate to
+      options:
+        - Getting started / installation
+        - Contract authoring
+        - Change proposals
+        - Consumer notifications
+        - Breach detection
+        - Audit trail
+        - CLI usage
+        - Web UI
+        - API
+        - Docker / deployment
+        - Contributing to the codebase
+        - Other
+    validations:
+      required: true
