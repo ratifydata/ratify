@@ -1,0 +1,73 @@
+name: Bug report
+description: Something is not working as expected
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing a bug, check whether it has already been reported in [existing issues](https://github.com/ratifydata/ratify/issues).
+
+        The more specific you are, the faster we can reproduce and fix the problem.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: A clear description of the bug. What did you do, what did you expect, and what actually happened?
+      placeholder: |
+        I ran `ratify contract activate <id>` and expected the contract status to change to "active".
+        Instead, the CLI exited with error: "failed to connect to database: connection refused".
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact steps needed to reproduce the bug. Be as specific as possible.
+      placeholder: |
+        1. Start the server with `docker compose up`
+        2. Create a contract with `ratify contract create`
+        3. Run `ratify contract activate <id>`
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Fill in the details for your setup.
+      value: |
+        - Ratify version (or commit hash):
+        - Go version (`go version`):
+        - OS:
+        - PostgreSQL version:
+        - Deployment method (docker compose / binary):
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or error output
+      description: Paste any relevant log output here. The server logs structured JSON — the full log line is more useful than just the message.
+      render: shell
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I have searched existing issues and this has not been reported before
+          required: true
+        - label: I am running the latest version of Ratify
+          required: false
