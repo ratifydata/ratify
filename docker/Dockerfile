@@ -9,7 +9,7 @@
 # Uses the official Go image to compile the binary.
 # This stage is discarded after the binary is copied to the runtime stage.
 # -----------------------------------------------------------------------------
-FROM golang:1.24-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 # Install ca-certificates and git.
 # ca-certificates: needed for HTTPS connections inside the binary.
