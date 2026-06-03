@@ -1,6 +1,6 @@
 module github.com/ratifydata/ratify
 
-go 1.25.0
+go 1.25.11
 
 require (
 	github.com/go-chi/chi/v5 v5.3.0
