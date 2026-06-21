@@ -48,7 +48,7 @@ func InitializePostgresContainer() (*TestContainer, error) {
 	migrationsPath := filepath.Join(basepath, "..", "..", "migrations")
 	//Use the pre-existing func for test containers
 	if err := db.RunMigrations(connStr, fmt.Sprintf("file://%s", migrationsPath)); err != nil {
-		slog.Error("error running migrations: %v", err)
+		slog.Error("error running migrations")
 		TerminateContainer(postgresContainer)
 		return nil, err
 	}
