@@ -35,7 +35,7 @@ func main() {
 
 	// Execute migrations prior to accepting any traffic hooks
 	slog.Info("running database migrations")
-	if err := db.RunMigrations(cfg.DatabaseURL); err != nil {
+	if err := db.RunMigrations(cfg.DatabaseURL, "file://migrations"); err != nil {
 		slog.Error("database migration failed", "error", err)
 		os.Exit(1)
 	}
