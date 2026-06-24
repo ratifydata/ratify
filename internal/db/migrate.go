@@ -16,8 +16,8 @@ import (
 // Migrations are applied in order and are idempotent — running this
 // function multiple times is safe. Already-applied migrations are
 // skipped automatically.
-func RunMigrations(databaseURL string) error {
-	m, err := migrate.New("file://migrations", databaseURL)
+func RunMigrations(databaseURL, migrationPath string) error {
+	m, err := migrate.New(migrationPath, databaseURL)
 	if err != nil {
 		return fmt.Errorf("failed to initialise migration runner: %w", err)
 	}
