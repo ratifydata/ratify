@@ -1,10 +1,12 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 
+	sqlc "github.com/ratifydata/ratify/internal/db/generated"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -12,6 +14,28 @@ const (
 	KeyLength = 32
 	// Introduce versioning for future case
 )
+
+type APIKey struct {
+	db *sqlc.Queries
+}
+
+func NewAPIKey(db *sqlc.Queries) *APIKey {
+	return &APIKey{db: db}
+}
+
+func (api *APIKey) ApiKeyAuthentication(ctx context.Context, prefix, keyHash string) (*sqlc.ApiKey, error) {
+	key, err := api.db.GetAPIKeyByPrefix(ctx, prefix)
+	if err != nil {
+		fmt.Printf("error getting api key prefix: %v\n", err)
+		return nil, err
+	}
+
+	if err = VerifyAPIKey(keyHash, key.KeyHash); err != nil {
+		return nil, err
+	}
+
+	return &key, nil
+}
 
 func GenerateAPIKey() (string, error) {
 	key := make([]byte, KeyLength)
