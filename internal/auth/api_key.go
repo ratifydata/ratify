@@ -19,6 +19,11 @@ type APIKey struct {
 	db *sqlc.Queries
 }
 
+type LoginParams struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
 func NewAPIKey(db *sqlc.Queries) *APIKey {
 	return &APIKey{db: db}
 }
@@ -35,6 +40,10 @@ func (api *APIKey) ApiKeyAuthentication(ctx context.Context, prefix, keyHash str
 	}
 
 	return &key, nil
+}
+
+func (api *APIKey) Login(ctx context.Context, params LoginParams) (string, error) {
+	return "", fmt.Errorf("login not implemented")
 }
 
 func GenerateAPIKey() (string, error) {

@@ -1,7 +1,8 @@
-package api
+package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -18,17 +19,13 @@ type apiKeyAuthenticator interface {
 func authHandler(apiKeyAuth apiKeyAuthenticator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
+			//Extracts Authorization Header and Get the value of the Bearer Token
+			authHeaderValue, err := verifyAuthHeader(r)
+
+			if err != nil {
 				http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 				return
 			}
-			//Strip the Bearer Prefix. If it lacks, return 401 for invalid format
-			if !strings.HasPrefix(authHeader, "Bearer ") {
-				http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
-				return
-			}
-			authHeaderValue := strings.TrimPrefix(authHeader, "Bearer ")
 			//Trim the prefix (8 Characters). Should be unique
 			if len(authHeaderValue) <= KeyPrefix+1 || authHeaderValue[KeyPrefix] != '.' {
 				http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
@@ -49,4 +46,17 @@ func authHandler(apiKeyAuth apiKeyAuthenticator) func(http.Handler) http.Handler
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+func verifyAuthHeader(r *http.Request) (string, error) {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return "", errors.New("missing Authorization header")
+	}
+	//Strip the Bearer Prefix. If it lacks, return 401 for invalid format
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		return "", errors.New("invalid Authorization header")
+	}
+	return strings.TrimPrefix(authHeader, "Bearer "), nil
+
 }
