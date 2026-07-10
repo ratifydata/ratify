@@ -15,8 +15,8 @@ type apiKeyAuthenticator interface {
 	ApiKeyAuthentication(ctx context.Context, prefix, keyHash string) (*sqlc.ApiKey, error)
 }
 
-// authHandler validates the request has the pre-requisite authentication headers
-func authHandler(apiKeyAuth apiKeyAuthenticator) func(http.Handler) http.Handler {
+// apiKeyAuthHandler validates the request has the pre-requisite authentication headers
+func apiKeyAuthHandler(apiKeyAuth apiKeyAuthenticator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			//Extracts Authorization Header and Get the value of the Bearer Token

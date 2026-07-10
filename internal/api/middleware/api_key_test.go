@@ -42,7 +42,7 @@ func TestAuthHandler_AuthorizationHeaderMissing(t *testing.T) {
 		nextCalled = true
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := authHandler(authenticator)(next)
+	handler := apiKeyAuthHandler(authenticator)(next)
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
@@ -68,7 +68,7 @@ func TestAuthHandler_InvalidAuthorizationScheme(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := authHandler(authenticator)(next)
+	handler := apiKeyAuthHandler(authenticator)(next)
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
@@ -114,7 +114,7 @@ func TestAuthHandler_MalformedAPIKey(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 			})
 
-			handler := authHandler(authenticator)(next)
+			handler := apiKeyAuthHandler(authenticator)(next)
 			handler.ServeHTTP(rec, req)
 
 			if rec.Code != http.StatusUnauthorized {
@@ -142,7 +142,7 @@ func TestAuthHandler_AuthenticationFailed(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := authHandler(authenticator)(next)
+	handler := apiKeyAuthHandler(authenticator)(next)
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
@@ -185,7 +185,7 @@ func TestAuthHandler_AuthenticationSucceeded(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := authHandler(authenticator)(next)
+	handler := apiKeyAuthHandler(authenticator)(next)
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
