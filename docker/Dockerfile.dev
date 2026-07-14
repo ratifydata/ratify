@@ -4,7 +4,7 @@
 # Go files change. Mount the source code as a volume for this to work.
 # =============================================================================
 
-FROM golang:1.25-alpine
+FROM golang:1.25.12-alpine
 
 # Install air (live reload) and other development tools.
 RUN apk add --no-cache ca-certificates git curl && \
