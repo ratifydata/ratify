@@ -3,9 +3,11 @@ package auth
 import (
 	"context"
 	"crypto/rand"
-	"encoding/hex"
+	"encoding/base64"
 	"fmt"
+	"log/slog"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -24,9 +26,13 @@ func NewAPIKey(db *sqlc.Queries) *APIKey {
 }
 
 func (api *APIKey) ApiKeyAuthentication(ctx context.Context, prefix, keyHash string) (*sqlc.ApiKey, error) {
-	key, err := api.db.GetAPIKeyByPrefix(ctx, prefix)
+	params := sqlc.GetAPIKeyByPrefixParams{
+		KeyPrefix: prefix,
+		IsActive:  true,
+	}
+	key, err := api.db.GetAPIKeyByPrefix(ctx, params)
 	if err != nil {
-		fmt.Printf("error getting api key prefix: %v\n", err)
+		slog.Error("failed to get api key by prefix")
 		return nil, err
 	}
 
@@ -37,13 +43,22 @@ func (api *APIKey) ApiKeyAuthentication(ctx context.Context, prefix, keyHash str
 	return &key, nil
 }
 
+func (api *APIKey) UpdateVerificationTimestamp(ctx context.Context, id pgtype.UUID) error {
+	_, err := api.db.UpdateAPIKeyLastUsed(ctx, id)
+	if err != nil {
+		slog.Error("failed to update api key last used")
+		return err
+	}
+	return nil
+}
+
 func GenerateAPIKey() (string, error) {
 	key := make([]byte, KeyLength)
 	if _, err := rand.Read(key); err != nil {
 		return "", err
 	}
 	//Encode the key to URL-safe base64
-	return hex.EncodeToString(key), nil
+	return base64.RawURLEncoding.EncodeToString(key), nil
 }
 
 func Hash(key string) (string, error) {

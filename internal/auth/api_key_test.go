@@ -1,7 +1,7 @@
 package auth
 
 import (
-	"encoding/hex"
+	"encoding/base64"
 	"strings"
 	"testing"
 )
@@ -12,12 +12,7 @@ func TestGenerateAPIKey(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	expectedLength := KeyLength * 2
-	if len(key) != expectedLength {
-		t.Fatalf("expected key length %d, got %d", expectedLength, len(key))
-	}
-
-	decoded, err := hex.DecodeString(key)
+	decoded, err := base64.RawURLEncoding.DecodeString(key)
 	if err != nil {
 		t.Fatalf("expected key to be hex encoded, got error: %v", err)
 	}

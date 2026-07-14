@@ -6,36 +6,52 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
 )
 
-type fakeAPIKeyAuthenticator struct {
-	apiKey *sqlc.ApiKey
-	err    error
+type testAPIKeyAuthenticator struct {
+	apiKey    *sqlc.ApiKey
+	authErr   error
+	updateErr error
 
-	calls   int
-	prefix  string
-	keyHash string
+	authCalls   int
+	updateCalls int
+	prefix      string
+	keyHash     string
+	updatedID   pgtype.UUID
+	updatedCtx  context.Context
+	updated     chan struct{}
 }
 
-func (f *fakeAPIKeyAuthenticator) ApiKeyAuthentication(ctx context.Context, prefix, keyHash string) (*sqlc.ApiKey, error) {
-	f.calls++
+func (f *testAPIKeyAuthenticator) ApiKeyAuthentication(ctx context.Context, prefix, keyHash string) (*sqlc.ApiKey, error) {
+	f.authCalls++
 	f.prefix = prefix
 	f.keyHash = keyHash
 
-	if f.err != nil {
-		return nil, f.err
+	if f.authErr != nil {
+		return nil, f.authErr
 	}
 
 	return f.apiKey, nil
 }
 
+func (f *testAPIKeyAuthenticator) UpdateVerificationTimestamp(ctx context.Context, id pgtype.UUID) error {
+	f.updateCalls++
+	f.updatedID = id
+	f.updatedCtx = ctx
+	if f.updated != nil {
+		close(f.updated)
+	}
+	return f.updateErr
+}
+
 func TestAuthHandler_AuthorizationHeaderMissing(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
-	authenticator := &fakeAPIKeyAuthenticator{}
+	authenticator := &testAPIKeyAuthenticator{}
 	nextCalled := false
 
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -51,8 +67,11 @@ func TestAuthHandler_AuthorizationHeaderMissing(t *testing.T) {
 	if nextCalled {
 		t.Fatal("expected next handler not to be called")
 	}
-	if authenticator.calls != 0 {
-		t.Fatalf("expected authenticator not to be called, got %d calls", authenticator.calls)
+	if authenticator.authCalls != 0 {
+		t.Fatalf("expected authenticator not to be called, got %d calls", authenticator.authCalls)
+	}
+	if authenticator.updateCalls != 0 {
+		t.Fatalf("expected verification timestamp not to be updated, got %d calls", authenticator.updateCalls)
 	}
 }
 
@@ -60,7 +79,7 @@ func TestAuthHandler_InvalidAuthorizationScheme(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	req.Header.Set("Authorization", "Basic abcdefgh.secret")
 	rec := httptest.NewRecorder()
-	authenticator := &fakeAPIKeyAuthenticator{}
+	authenticator := &testAPIKeyAuthenticator{}
 	nextCalled := false
 
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -77,8 +96,11 @@ func TestAuthHandler_InvalidAuthorizationScheme(t *testing.T) {
 	if nextCalled {
 		t.Fatal("expected next handler not to be called")
 	}
-	if authenticator.calls != 0 {
-		t.Fatalf("expected authenticator not to be called, got %d calls", authenticator.calls)
+	if authenticator.authCalls != 0 {
+		t.Fatalf("expected authenticator not to be called, got %d calls", authenticator.authCalls)
+	}
+	if authenticator.updateCalls != 0 {
+		t.Fatalf("expected verification timestamp not to be updated, got %d calls", authenticator.updateCalls)
 	}
 }
 
@@ -106,7 +128,7 @@ func TestAuthHandler_MalformedAPIKey(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/test", nil)
 			req.Header.Set("Authorization", tt.authorization)
 			rec := httptest.NewRecorder()
-			authenticator := &fakeAPIKeyAuthenticator{}
+			authenticator := &testAPIKeyAuthenticator{}
 			nextCalled := false
 
 			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -123,8 +145,11 @@ func TestAuthHandler_MalformedAPIKey(t *testing.T) {
 			if nextCalled {
 				t.Fatal("expected next handler not to be called")
 			}
-			if authenticator.calls != 0 {
-				t.Fatalf("expected authenticator not to be called, got %d calls", authenticator.calls)
+			if authenticator.authCalls != 0 {
+				t.Fatalf("expected authenticator not to be called, got %d calls", authenticator.authCalls)
+			}
+			if authenticator.updateCalls != 0 {
+				t.Fatalf("expected verification timestamp not to be updated, got %d calls", authenticator.updateCalls)
 			}
 		})
 	}
@@ -134,7 +159,7 @@ func TestAuthHandler_AuthenticationFailed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	req.Header.Set("Authorization", "Bearer abcdefgh.secret")
 	rec := httptest.NewRecorder()
-	authenticator := &fakeAPIKeyAuthenticator{err: errors.New("invalid api key")}
+	authenticator := &testAPIKeyAuthenticator{authErr: errors.New("invalid api key")}
 	nextCalled := false
 
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -151,8 +176,11 @@ func TestAuthHandler_AuthenticationFailed(t *testing.T) {
 	if nextCalled {
 		t.Fatal("expected next handler not to be called")
 	}
-	if authenticator.calls != 1 {
-		t.Fatalf("expected authenticator to be called once, got %d calls", authenticator.calls)
+	if authenticator.authCalls != 1 {
+		t.Fatalf("expected authenticator to be called once, got %d calls", authenticator.authCalls)
+	}
+	if authenticator.updateCalls != 0 {
+		t.Fatalf("expected verification timestamp not to be updated, got %d calls", authenticator.updateCalls)
 	}
 	if authenticator.prefix != "abcdefgh" {
 		t.Errorf("got prefix %q, want %q", authenticator.prefix, "abcdefgh")
@@ -166,8 +194,14 @@ func TestAuthHandler_AuthenticationSucceeded(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	req.Header.Set("Authorization", "Bearer abcdefgh.secret")
 	rec := httptest.NewRecorder()
-	authenticator := &fakeAPIKeyAuthenticator{
+	apiKeyID := pgtype.UUID{
+		Bytes: [16]byte{7, 8, 9},
+		Valid: true,
+	}
+	authenticator := &testAPIKeyAuthenticator{
+		updated: make(chan struct{}),
 		apiKey: &sqlc.ApiKey{
+			ID: apiKeyID,
 			OrgID: pgtype.UUID{
 				Bytes: [16]byte{1, 2, 3},
 				Valid: true,
@@ -194,8 +228,8 @@ func TestAuthHandler_AuthenticationSucceeded(t *testing.T) {
 	if !nextCalled {
 		t.Fatal("expected next handler to be called")
 	}
-	if authenticator.calls != 1 {
-		t.Fatalf("expected authenticator to be called once, got %d calls", authenticator.calls)
+	if authenticator.authCalls != 1 {
+		t.Fatalf("expected authenticator to be called once, got %d calls", authenticator.authCalls)
 	}
 	if authenticator.prefix != "abcdefgh" {
 		t.Errorf("got prefix %q, want %q", authenticator.prefix, "abcdefgh")
@@ -203,11 +237,16 @@ func TestAuthHandler_AuthenticationSucceeded(t *testing.T) {
 	if authenticator.keyHash != "secret" {
 		t.Errorf("got key hash %q, want %q", authenticator.keyHash, "secret")
 	}
-	if rec.Header().Get("x-org-id") == "" {
-		t.Fatal("expected x-org-id header to be set")
+	select {
+	case <-authenticator.updated:
+	case <-time.After(time.Second):
+		t.Fatal("expected verification timestamp to be updated")
 	}
-	if rec.Header().Get("x-user-id") == "" {
-		t.Fatal("expected x-user-id header to be set")
+	if authenticator.updateCalls != 1 {
+		t.Fatalf("expected verification timestamp to be updated once, got %d calls", authenticator.updateCalls)
+	}
+	if authenticator.updatedID != apiKeyID {
+		t.Errorf("got updated id %v, want %v", authenticator.updatedID, apiKeyID)
 	}
 
 }

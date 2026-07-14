@@ -2,9 +2,12 @@ package api
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
 )
 
@@ -12,6 +15,7 @@ const KeyPrefix = 8
 
 type apiKeyAuthenticator interface {
 	ApiKeyAuthentication(ctx context.Context, prefix, keyHash string) (*sqlc.ApiKey, error)
+	UpdateVerificationTimestamp(ctx context.Context, id pgtype.UUID) error
 }
 
 // authHandler validates the request has the pre-requisite authentication headers
@@ -43,9 +47,24 @@ func authHandler(apiKeyAuth apiKeyAuthenticator) func(http.Handler) http.Handler
 				return
 			}
 
-			//Set the OrgID && UserID Headers for downstream functions
-			w.Header().Set("x-org-id", apiKey.OrgID.String())
-			w.Header().Set("x-user-id", apiKey.UserID.String())
+			//Set the OrgID && UserID in the Context for downstream functionalities
+			//Currently using a map but this can change for downstream goroutines(Context may change)
+			customParams := make(map[string]any)
+			customParams["OrgID"] = apiKey.OrgID
+			customParams["UserID"] = apiKey.UserID
+
+			//Set last_used_at without blocking the authenticated request.
+			go func(ctx context.Context, id pgtype.UUID) {
+				updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+				defer cancel()
+
+				//if not update log the error and proceed.
+				if err := apiKeyAuth.UpdateVerificationTimestamp(updateCtx, id); err != nil {
+					slog.Error("failed to update verification timestamp", "error", err)
+				}
+			}(r.Context(), apiKey.ID)
+
+			r = r.WithContext(context.WithValue(r.Context(), "orgParams", customParams))
 			next.ServeHTTP(w, r)
 		})
 	}

@@ -74,7 +74,8 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (Cre
 }
 
 const deleteAPIKey = `-- name: DeleteAPIKey :exec
-DELETE FROM api_keys
+UPDATE  api_keys
+SET is_active = false
 WHERE id = $1
 `
 
@@ -133,11 +134,16 @@ func (q *Queries) GetAPIKeyByHash(ctx context.Context, keyHash string) (ApiKey, 
 
 const getAPIKeyByPrefix = `-- name: GetAPIKeyByPrefix :one
 SELECT id, user_id, org_id, name, key_hash, key_prefix, scope, is_active, expires_at, last_used_at, created_at FROM api_keys
-WHERE key_prefix = $1
+WHERE key_prefix = $1  AND is_active = $2
 `
 
-func (q *Queries) GetAPIKeyByPrefix(ctx context.Context, keyPrefix string) (ApiKey, error) {
-	row := q.db.QueryRow(ctx, getAPIKeyByPrefix, keyPrefix)
+type GetAPIKeyByPrefixParams struct {
+	KeyPrefix string
+	IsActive  bool
+}
+
+func (q *Queries) GetAPIKeyByPrefix(ctx context.Context, arg GetAPIKeyByPrefixParams) (ApiKey, error) {
+	row := q.db.QueryRow(ctx, getAPIKeyByPrefix, arg.KeyPrefix, arg.IsActive)
 	var i ApiKey
 	err := row.Scan(
 		&i.ID,

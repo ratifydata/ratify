@@ -22,7 +22,7 @@ WHERE key_hash = $1;
 
 -- name: GetAPIKeyByPrefix :one
 SELECT * FROM api_keys
-WHERE key_prefix = $1;
+WHERE key_prefix = $1  AND is_active = $2;
 
 -- name: ListAPIKeysByUser :many
 SELECT * FROM api_keys
@@ -51,5 +51,6 @@ WHERE id = $1
 RETURNING *;
 
 -- name: DeleteAPIKey :exec
-DELETE FROM api_keys
+UPDATE  api_keys
+SET is_active = false
 WHERE id = $1;
