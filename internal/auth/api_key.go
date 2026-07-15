@@ -26,11 +26,8 @@ func NewAPIKey(db *sqlc.Queries) *APIKey {
 }
 
 func (api *APIKey) ApiKeyAuthentication(ctx context.Context, prefix, keyHash string) (*sqlc.ApiKey, error) {
-	params := sqlc.GetAPIKeyByPrefixParams{
-		KeyPrefix: prefix,
-		IsActive:  true,
-	}
-	key, err := api.db.GetAPIKeyByPrefix(ctx, params)
+
+	key, err := api.db.GetAPIKeyByPrefix(ctx, prefix)
 	if err != nil {
 		slog.Error("failed to get api key by prefix")
 		return nil, err

@@ -12,6 +12,8 @@ import (
 )
 
 const KeyPrefix = 8
+const OrgId = "OrgID"
+const UserId = "UserID"
 
 type apiKeyAuthenticator interface {
 	ApiKeyAuthentication(ctx context.Context, prefix, keyHash string) (*sqlc.ApiKey, error)
@@ -47,12 +49,6 @@ func authHandler(apiKeyAuth apiKeyAuthenticator) func(http.Handler) http.Handler
 				return
 			}
 
-			//Set the OrgID && UserID in the Context for downstream functionalities
-			//Currently using a map but this can change for downstream goroutines(Context may change)
-			customParams := make(map[string]any)
-			customParams["OrgID"] = apiKey.OrgID
-			customParams["UserID"] = apiKey.UserID
-
 			//Set last_used_at without blocking the authenticated request.
 			go func(ctx context.Context, id pgtype.UUID) {
 				updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
@@ -64,7 +60,10 @@ func authHandler(apiKeyAuth apiKeyAuthenticator) func(http.Handler) http.Handler
 				}
 			}(r.Context(), apiKey.ID)
 
-			r = r.WithContext(context.WithValue(r.Context(), "orgParams", customParams))
+			//Set the OrgID && UserID in the Context for downstream functionalities
+			//Add keys iteratively using a constant to bypass package boundaries
+			r = r.WithContext(context.WithValue(r.Context(), OrgId, apiKey.OrgID))
+			r = r.WithContext(context.WithValue(r.Context(), UserId, apiKey.UserID))
 			next.ServeHTTP(w, r)
 		})
 	}

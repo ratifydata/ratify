@@ -23,7 +23,7 @@ INSERT INTO api_keys (
     expires_at
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8
-) RETURNING user_id,org_id,name,key_hash,key_prefix,scope,is_active,expires_at
+) RETURNING id,user_id,org_id,name,key_hash,key_prefix,scope,is_active,expires_at
 `
 
 type CreateAPIKeyParams struct {
@@ -38,6 +38,7 @@ type CreateAPIKeyParams struct {
 }
 
 type CreateAPIKeyRow struct {
+	ID        pgtype.UUID
 	UserID    pgtype.UUID
 	OrgID     pgtype.UUID
 	Name      string
@@ -61,6 +62,7 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (Cre
 	)
 	var i CreateAPIKeyRow
 	err := row.Scan(
+		&i.ID,
 		&i.UserID,
 		&i.OrgID,
 		&i.Name,
@@ -108,42 +110,13 @@ func (q *Queries) GetAPIKey(ctx context.Context, id pgtype.UUID) (ApiKey, error)
 	return i, err
 }
 
-const getAPIKeyByHash = `-- name: GetAPIKeyByHash :one
-SELECT id, user_id, org_id, name, key_hash, key_prefix, scope, is_active, expires_at, last_used_at, created_at FROM api_keys
-WHERE key_hash = $1
-`
-
-func (q *Queries) GetAPIKeyByHash(ctx context.Context, keyHash string) (ApiKey, error) {
-	row := q.db.QueryRow(ctx, getAPIKeyByHash, keyHash)
-	var i ApiKey
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.OrgID,
-		&i.Name,
-		&i.KeyHash,
-		&i.KeyPrefix,
-		&i.Scope,
-		&i.IsActive,
-		&i.ExpiresAt,
-		&i.LastUsedAt,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const getAPIKeyByPrefix = `-- name: GetAPIKeyByPrefix :one
 SELECT id, user_id, org_id, name, key_hash, key_prefix, scope, is_active, expires_at, last_used_at, created_at FROM api_keys
-WHERE key_prefix = $1  AND is_active = $2
+WHERE key_prefix = $1  AND is_active = true
 `
 
-type GetAPIKeyByPrefixParams struct {
-	KeyPrefix string
-	IsActive  bool
-}
-
-func (q *Queries) GetAPIKeyByPrefix(ctx context.Context, arg GetAPIKeyByPrefixParams) (ApiKey, error) {
-	row := q.db.QueryRow(ctx, getAPIKeyByPrefix, arg.KeyPrefix, arg.IsActive)
+func (q *Queries) GetAPIKeyByPrefix(ctx context.Context, keyPrefix string) (ApiKey, error) {
+	row := q.db.QueryRow(ctx, getAPIKeyByPrefix, keyPrefix)
 	var i ApiKey
 	err := row.Scan(
 		&i.ID,
