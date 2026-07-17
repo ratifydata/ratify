@@ -10,15 +10,15 @@ INSERT INTO api_keys (
     expires_at
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8
-) RETURNING *;
+) RETURNING id,user_id,org_id,name,key_hash,key_prefix,scope,is_active,expires_at;
 
 -- name: GetAPIKey :one
 SELECT * FROM api_keys
 WHERE id = $1;
 
--- name: GetAPIKeyByHash :one
+-- name: GetAPIKeyByPrefix :one
 SELECT * FROM api_keys
-WHERE key_hash = $1;
+WHERE key_prefix = $1  AND is_active = true;
 
 -- name: ListAPIKeysByUser :many
 SELECT * FROM api_keys
@@ -47,5 +47,6 @@ WHERE id = $1
 RETURNING *;
 
 -- name: DeleteAPIKey :exec
-DELETE FROM api_keys
+UPDATE  api_keys
+SET is_active = false
 WHERE id = $1;
