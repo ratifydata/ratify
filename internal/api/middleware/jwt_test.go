@@ -7,7 +7,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ratifydata/ratify/internal/auth"
+	"github.com/ratifydata/ratify/internal/config"
 )
+
+const testJWTSecret = "test-jwt-secret"
+
+func testJWTMiddleware(next http.Handler) http.Handler {
+	return JwtAuthMiddleware(&config.Config{JWTSecret: testJWTSecret})(next)
+}
 
 func TestJwtAuthMiddleware_AuthorizationHeaderMissing(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
@@ -19,7 +26,7 @@ func TestJwtAuthMiddleware_AuthorizationHeaderMissing(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := jwtAuthMiddleware(next)
+	handler := testJWTMiddleware(next)
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
@@ -41,7 +48,7 @@ func TestJwtAuthMiddleware_InvalidAuthorizationScheme(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := jwtAuthMiddleware(next)
+	handler := testJWTMiddleware(next)
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
@@ -63,7 +70,7 @@ func TestJwtAuthMiddleware_InvalidToken(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := jwtAuthMiddleware(next)
+	handler := testJWTMiddleware(next)
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
@@ -77,7 +84,7 @@ func TestJwtAuthMiddleware_InvalidToken(t *testing.T) {
 func TestJwtAuthMiddleware_ValidToken(t *testing.T) {
 	userID := uuid.New()
 	orgID := uuid.New()
-	token, err := auth.GenerateJWT(userID, orgID)
+	token, err := auth.GenerateJWT(userID, orgID, testJWTSecret)
 	if err != nil {
 		t.Fatalf("failed to generate jwt: %v", err)
 	}
@@ -89,10 +96,16 @@ func TestJwtAuthMiddleware_ValidToken(t *testing.T) {
 
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		nextCalled = true
+		if got := r.Context().Value(OrgId); got != orgID {
+			t.Errorf("got org ID %v in context, want %s", got, orgID)
+		}
+		if got := r.Context().Value(UserId); got != userID {
+			t.Errorf("got user ID %v in context, want %s", got, userID)
+		}
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := jwtAuthMiddleware(next)
+	handler := testJWTMiddleware(next)
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -100,11 +113,5 @@ func TestJwtAuthMiddleware_ValidToken(t *testing.T) {
 	}
 	if !nextCalled {
 		t.Fatal("expected next handler to be called")
-	}
-	if rec.Header().Get("x-org-id") != orgID.String() {
-		t.Errorf("got x-org-id %q, want %q", rec.Header().Get("x-org-id"), orgID.String())
-	}
-	if rec.Header().Get("x-user-id") != userID.String() {
-		t.Errorf("got x-user-id %q, want %q", rec.Header().Get("x-user-id"), userID.String())
 	}
 }
