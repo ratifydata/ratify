@@ -20,7 +20,7 @@ type fakeLoginService struct {
 	params auth.LoginParams
 }
 
-func (f *fakeLoginService) Login(ctx context.Context, params auth.LoginParams) (string, error) {
+func (f *fakeLoginService) AuthenticateUser(ctx context.Context, params auth.LoginParams) (string, error) {
 	f.calls++
 	f.params = params
 
