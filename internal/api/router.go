@@ -17,11 +17,11 @@ func NewRouter(pool *db.Pool) *chi.Mux {
 	r.Use(middleware.Recoverer)
 
 	queries := sqlc.New(pool)
-	authService := auth.NewAPIKey(queries)
+	authLogin := auth.NewUsernamePasswordAuth(queries)
 
 	// Health check endpoint.
 	r.Get("/health", healthHandler(pool))
-	r.Post("/auth/login", loginHandler(authService))
+	r.Post("/auth/login", loginHandler(authLogin))
 
 	return r
 }

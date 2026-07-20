@@ -11,7 +11,7 @@ import (
 const jwtCookieName = "jwt"
 
 type loginService interface {
-	Login(ctx context.Context, params auth.LoginParams) (string, error)
+	AuthenticateUser(ctx context.Context, params auth.LoginParams) (string, error)
 }
 
 type loginResponse struct {
@@ -26,7 +26,7 @@ func loginHandler(service loginService) http.HandlerFunc {
 			return
 		}
 
-		token, err := service.Login(r.Context(), params)
+		token, err := service.AuthenticateUser(r.Context(), params)
 		if err != nil {
 			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
