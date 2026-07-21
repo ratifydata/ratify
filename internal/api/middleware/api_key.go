@@ -1,7 +1,8 @@
-package api
+package middleware
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -67,4 +68,17 @@ func authHandler(apiKeyAuth apiKeyAuthenticator) func(http.Handler) http.Handler
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+func verifyAuthHeader(r *http.Request) (string, error) {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return "", errors.New("missing Authorization header")
+	}
+	//Strip the Bearer Prefix. If it lacks, return 401 for invalid format
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		return "", errors.New("invalid Authorization header")
+	}
+	return strings.TrimPrefix(authHeader, "Bearer "), nil
+
 }
