@@ -34,7 +34,7 @@
 
 ---
 
-A schema change ships on Friday. Nobody tells the data team. The pipeline breaks on Monday. The executive dashboard goes stale. Everyone loses a week they didn't have.
+A schema change ships on Friday and nobody tells the data team. By Monday the pipeline is broken, the executive dashboard is stale, and the team spends the week they didn't have cleaning it up.
 
 **Ratify** is an open-source data contract workflow engine. It gives data teams a structured, auditable process for proposing, negotiating, and approving schema changes - *before* those changes cause downstream failures.
 
@@ -62,7 +62,7 @@ Proposal approved → contract version activated → audit trail updated
 Breach detection runs hourly - catches anything that slips through
 ```
 
-No dashboards to log into. No accounts required for consumers to respond.
+There's no dashboard to log into and no account required for consumers to respond.
 The whole flow lives where your team already works.
 
 ---
@@ -86,14 +86,15 @@ are recorded immediately and visible to the producer in real time.
 
 ### Breach Detection
 A scheduled job runs every hour and compares your live database schema against
-active contract snapshots. When reality diverges from what was agreed, a column
-is dropped, a type changes, a table disappears and the right people are alerted
-immediately.
+active contract snapshots. When reality diverges from what was agreed, whether
+it's a dropped column, a changed type, or a missing table, the right people are
+alerted immediately.
 
 ### Immutable Audit Trail
-Every event is written to an append-only log. Who raised a proposal, who approved
-it, when a breach was detected, what the schema looked like at each version.
-Answering *"who agreed to this change?"* takes seconds, not hours.
+Every event is written to an append-only log: who raised a proposal, who approved
+it, when a breach was detected, and what the schema looked like at each version.
+Answering *"who agreed to this change?"* means checking one log, not searching
+through email threads and Slack messages.
 
 ### Slack Integration *(Phase 2)*
 Proposals arrive in Slack as interactive messages. Consumers accept or reject with
@@ -316,8 +317,8 @@ curl http://localhost:8080/health
 
 | Phase | Status | Description |
 |---|---|---|
-| Phase 0: Foundation | In progress | Codebase skeleton, auth, Docker |
-| Phase 1: Core Loop | Planned | Contracts, proposals, breach detection, audit trail |
+| Phase 0: Foundation | Completed | Codebase skeleton, auth, Docker |
+| Phase 1: Core Loop | In progress | Contracts, proposals, breach detection, audit trail |
 | Phase 2: Integrations | Planned | Slack, GitHub/GitLab PR hooks, Web UI |
 | Phase 3: Intelligence | Planned | Auto-suggest contracts, drift detection |
 | Phase 4: Breadth | Planned | SQL Server, RBAC, outbound webhooks |
@@ -375,7 +376,7 @@ In separate discussions with a CTO at a commercial bank and a Head of Digital Tr
 
 The Head of Infrastructure at the first bank described the fallout, broken pipelines, stale reports, and constant conflict between engineering and data teams. Their temporary "solution" was to hire a DBA with a firm personality to enforce contracts manually.
 
-That is not a solution. That is a missing infrastructure problem.
+That's not a solution, it's a missing piece of infrastructure.
 
 No existing tool addresses the workflow and negotiation layer required for data contracts. Ratify replaces manual "firmness" with a structured process, ensuring changes are approved before they hit production.
 
