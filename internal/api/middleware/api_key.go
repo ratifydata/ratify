@@ -21,8 +21,8 @@ type apiKeyAuthenticator interface {
 	UpdateVerificationTimestamp(ctx context.Context, id pgtype.UUID) error
 }
 
-// authHandler validates the request has the pre-requisite authentication headers
-func authHandler(apiKeyAuth apiKeyAuthenticator) func(http.Handler) http.Handler {
+// ApiKeyAuthHandler validates the request has the pre-requisite authentication headers
+func ApiKeyAuthHandler(apiKeyAuth apiKeyAuthenticator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
