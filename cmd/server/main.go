@@ -57,7 +57,7 @@ func main() {
 
 	slog.Info("database connection established")
 
-	router := api.NewRouter(pool)
+	router := api.NewRouter(pool, cfg)
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),

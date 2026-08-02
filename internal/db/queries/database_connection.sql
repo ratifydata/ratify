@@ -9,9 +9,10 @@ INSERT INTO database_connections (
     password_encrypted,
     ssl_enabled,
     ssl_mode,
-    status
+    status,
+    nonce
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,$11
 ) RETURNING *;
 
 -- name: GetDatabaseConnection :one
@@ -35,6 +36,7 @@ SET
     ssl_enabled = $8,
     ssl_mode = $9,
     status = $10,
+    nonce = $11,
     updated_at = NOW()
 WHERE id = $1
 RETURNING *;

@@ -20,7 +20,7 @@ func Encrypt(secret []byte, plainText string) (*EncData, error) {
 
 	gcm, err := generateCipherBlock(secret)
 	if err != nil {
-		slog.Error("error creating GCM")
+		slog.Error("error creating Cipher block:")
 		return nil, err
 	}
 	nonce := make([]byte, gcm.NonceSize())

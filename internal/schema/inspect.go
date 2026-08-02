@@ -3,11 +3,14 @@ package schema
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"log/slog"
 	"net"
 	"net/url"
 	"strconv"
 
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/ratifydata/ratify/internal/auth"
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
 )
 
@@ -18,16 +21,17 @@ type ConnectionParams struct {
 	Password     string `json:"password"`
 	DatabaseName string `json:"database_name"`
 	SSLMode      string `json:"ssl_mode"`
-	SSlEnable    bool   `json:"ssl_enable"`
+	SSlEnabled   bool   `json:"ssl_enabled"`
 	DriverName   string `json:"driver_name"`
 }
 
 type Inspector struct {
-	db *sqlc.Queries
+	db     *sqlc.Queries
+	encKey string
 }
 
-func NewInspector(db *sqlc.Queries) *Inspector {
-	return &Inspector{db: db}
+func NewInspector(db *sqlc.Queries, encKey string) *Inspector {
+	return &Inspector{db: db, encKey: encKey}
 }
 
 func (i *Inspector) SchemaInspection(ctx context.Context, params ConnectionParams) error {
@@ -54,6 +58,37 @@ func (i *Inspector) SchemaInspection(ctx context.Context, params ConnectionParam
 	}(db)
 	//Validate Privilege can be combined with Establish Connection
 	if err = ValidatePrivileges(ctx, db); err != nil {
+		return err
+	}
+
+	//On connection and privilege validation store the details
+	//1. We encrypt the password at rest
+	//2. Save the connection
+	enc, err := auth.Encrypt([]byte(i.encKey), params.Password)
+	if err != nil {
+		slog.Error("error encrypting password")
+		return err
+	}
+
+	orgId, _ := ctx.Value("OrgID").(pgtype.UUID)
+
+	args := sqlc.CreateDatabaseConnectionParams{
+		DatabaseName:      params.DatabaseName,
+		Host:              params.Host,
+		Port:              int32(params.Port),
+		Username:          params.Username,
+		PasswordEncrypted: base64.StdEncoding.EncodeToString(enc.CipherText),
+		Nonce:             base64.StdEncoding.EncodeToString(enc.Nonce),
+		OrgID:             orgId,
+		SslMode:           params.SSLMode,
+		SslEnabled:        params.SSlEnabled,
+		Status:            "ACTIVE",
+	}
+
+	//The return entry has no use currently. Just check for errors
+	_, err = i.db.CreateDatabaseConnection(ctx, args)
+	if err != nil {
+		slog.Error("error creating database connection")
 		return err
 	}
 	return nil

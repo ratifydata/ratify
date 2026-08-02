@@ -5,13 +5,14 @@ import (
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	apiMiddleware "github.com/ratifydata/ratify/internal/api/middleware"
 	"github.com/ratifydata/ratify/internal/auth"
+	"github.com/ratifydata/ratify/internal/config"
 	"github.com/ratifydata/ratify/internal/db"
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
 	"github.com/ratifydata/ratify/internal/schema"
 )
 
 // NewRouter creates and configures the HTTP router.
-func NewRouter(pool *db.Pool) *chi.Mux {
+func NewRouter(pool *db.Pool, cfg *config.Config) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Middleware applied to every request.
@@ -21,7 +22,7 @@ func NewRouter(pool *db.Pool) *chi.Mux {
 	queries := sqlc.New(pool)
 	authLogin := auth.NewUsernamePasswordAuth(queries)
 	apiKey := auth.NewAPIKey(queries)
-	inspector := schema.NewInspector(queries)
+	inspector := schema.NewInspector(queries, cfg.EncryptionKey)
 
 	// Health check endpoint.
 	r.Get("/health", healthHandler(pool))

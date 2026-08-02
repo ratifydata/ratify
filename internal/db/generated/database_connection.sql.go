@@ -22,10 +22,11 @@ INSERT INTO database_connections (
     password_encrypted,
     ssl_enabled,
     ssl_mode,
-    status
+    status,
+    nonce
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING id, org_id, display_name, host, port, database_name, username, password_encrypted, ssl_enabled, ssl_mode, status, last_tested_at, last_test_passed, created_at, updated_at
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,$11
+) RETURNING id, org_id, display_name, host, port, database_name, username, password_encrypted, ssl_enabled, ssl_mode, status, last_tested_at, last_test_passed, created_at, updated_at, nonce
 `
 
 type CreateDatabaseConnectionParams struct {
@@ -39,6 +40,7 @@ type CreateDatabaseConnectionParams struct {
 	SslEnabled        bool
 	SslMode           string
 	Status            string
+	Nonce             string
 }
 
 func (q *Queries) CreateDatabaseConnection(ctx context.Context, arg CreateDatabaseConnectionParams) (DatabaseConnection, error) {
@@ -53,6 +55,7 @@ func (q *Queries) CreateDatabaseConnection(ctx context.Context, arg CreateDataba
 		arg.SslEnabled,
 		arg.SslMode,
 		arg.Status,
+		arg.Nonce,
 	)
 	var i DatabaseConnection
 	err := row.Scan(
@@ -71,6 +74,7 @@ func (q *Queries) CreateDatabaseConnection(ctx context.Context, arg CreateDataba
 		&i.LastTestPassed,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Nonce,
 	)
 	return i, err
 }
@@ -86,7 +90,7 @@ func (q *Queries) DeleteDatabaseConnection(ctx context.Context, id pgtype.UUID) 
 }
 
 const getDatabaseConnection = `-- name: GetDatabaseConnection :one
-SELECT id, org_id, display_name, host, port, database_name, username, password_encrypted, ssl_enabled, ssl_mode, status, last_tested_at, last_test_passed, created_at, updated_at FROM database_connections
+SELECT id, org_id, display_name, host, port, database_name, username, password_encrypted, ssl_enabled, ssl_mode, status, last_tested_at, last_test_passed, created_at, updated_at, nonce FROM database_connections
 WHERE id = $1
 `
 
@@ -109,12 +113,13 @@ func (q *Queries) GetDatabaseConnection(ctx context.Context, id pgtype.UUID) (Da
 		&i.LastTestPassed,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Nonce,
 	)
 	return i, err
 }
 
 const listDatabaseConnectionsByOrg = `-- name: ListDatabaseConnectionsByOrg :many
-SELECT id, org_id, display_name, host, port, database_name, username, password_encrypted, ssl_enabled, ssl_mode, status, last_tested_at, last_test_passed, created_at, updated_at FROM database_connections
+SELECT id, org_id, display_name, host, port, database_name, username, password_encrypted, ssl_enabled, ssl_mode, status, last_tested_at, last_test_passed, created_at, updated_at, nonce FROM database_connections
 WHERE org_id = $1
 ORDER BY display_name
 `
@@ -144,6 +149,7 @@ func (q *Queries) ListDatabaseConnectionsByOrg(ctx context.Context, orgID pgtype
 			&i.LastTestPassed,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Nonce,
 		); err != nil {
 			return nil, err
 		}
@@ -167,9 +173,10 @@ SET
     ssl_enabled = $8,
     ssl_mode = $9,
     status = $10,
+    nonce = $11,
     updated_at = NOW()
 WHERE id = $1
-RETURNING id, org_id, display_name, host, port, database_name, username, password_encrypted, ssl_enabled, ssl_mode, status, last_tested_at, last_test_passed, created_at, updated_at
+RETURNING id, org_id, display_name, host, port, database_name, username, password_encrypted, ssl_enabled, ssl_mode, status, last_tested_at, last_test_passed, created_at, updated_at, nonce
 `
 
 type UpdateDatabaseConnectionParams struct {
@@ -183,6 +190,7 @@ type UpdateDatabaseConnectionParams struct {
 	SslEnabled        bool
 	SslMode           string
 	Status            string
+	Nonce             string
 }
 
 func (q *Queries) UpdateDatabaseConnection(ctx context.Context, arg UpdateDatabaseConnectionParams) (DatabaseConnection, error) {
@@ -197,6 +205,7 @@ func (q *Queries) UpdateDatabaseConnection(ctx context.Context, arg UpdateDataba
 		arg.SslEnabled,
 		arg.SslMode,
 		arg.Status,
+		arg.Nonce,
 	)
 	var i DatabaseConnection
 	err := row.Scan(
@@ -215,6 +224,7 @@ func (q *Queries) UpdateDatabaseConnection(ctx context.Context, arg UpdateDataba
 		&i.LastTestPassed,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Nonce,
 	)
 	return i, err
 }
@@ -227,7 +237,7 @@ SET
     last_test_passed = $3,
     updated_at = NOW()
 WHERE id = $1
-RETURNING id, org_id, display_name, host, port, database_name, username, password_encrypted, ssl_enabled, ssl_mode, status, last_tested_at, last_test_passed, created_at, updated_at
+RETURNING id, org_id, display_name, host, port, database_name, username, password_encrypted, ssl_enabled, ssl_mode, status, last_tested_at, last_test_passed, created_at, updated_at, nonce
 `
 
 type UpdateDatabaseConnectionTestResultParams struct {
@@ -255,6 +265,7 @@ func (q *Queries) UpdateDatabaseConnectionTestResult(ctx context.Context, arg Up
 		&i.LastTestPassed,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Nonce,
 	)
 	return i, err
 }

@@ -11,20 +11,20 @@ import (
 	"github.com/ratifydata/ratify/internal/schema"
 )
 
-type fakeInspectionValidator struct {
+type stubInspectionValidator struct {
 	err    error
 	calls  int
 	params schema.ConnectionParams
 }
 
-func (f *fakeInspectionValidator) SchemaInspection(_ context.Context, params schema.ConnectionParams) error {
+func (f *stubInspectionValidator) SchemaInspection(_ context.Context, params schema.ConnectionParams) error {
 	f.calls++
 	f.params = params
 	return f.err
 }
 
 func TestSchemaConnectionHandlerSuccess(t *testing.T) {
-	inspector := &fakeInspectionValidator{}
+	inspector := &stubInspectionValidator{}
 	body := bytes.NewBufferString(`{
 		"host":"database.example.com",
 		"port":5432,
@@ -62,7 +62,7 @@ func TestSchemaConnectionHandlerSuccess(t *testing.T) {
 }
 
 func TestSchemaConnectionHandlerInvalidJSON(t *testing.T) {
-	inspector := &fakeInspectionValidator{}
+	inspector := &stubInspectionValidator{}
 	req := httptest.NewRequest(http.MethodPost, "/schema/inspect", bytes.NewBufferString(`{`))
 	rec := httptest.NewRecorder()
 
@@ -77,7 +77,7 @@ func TestSchemaConnectionHandlerInvalidJSON(t *testing.T) {
 }
 
 func TestSchemaConnectionHandlerInspectionFailure(t *testing.T) {
-	inspector := &fakeInspectionValidator{err: errors.New("connection refused")}
+	inspector := &stubInspectionValidator{err: errors.New("connection refused")}
 	req := httptest.NewRequest(http.MethodPost, "/schema/inspect", bytes.NewBufferString(`{"host":"database.example.com"}`))
 	rec := httptest.NewRecorder()
 
