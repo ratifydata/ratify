@@ -130,6 +130,7 @@ type DatabaseConnection struct {
 	LastTestPassed    pgtype.Bool
 	CreatedAt         pgtype.Timestamptz
 	UpdatedAt         pgtype.Timestamptz
+	Nonce             string
 }
 
 type NotificationLog struct {

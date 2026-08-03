@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/ratifydata/ratify/internal/auth"
+	"github.com/ratifydata/ratify/internal/config"
 )
 
 type fakeLoginService struct {
@@ -130,7 +131,7 @@ func TestLoginHandler_SecureCookieWhenRequestIsTLS(t *testing.T) {
 }
 
 func TestNewRouter_RegistersAuthLoginRoute(t *testing.T) {
-	router := NewRouter(nil)
+	router := NewRouter(nil, &config.Config{EncryptionKey: "enc-test-key"})
 	req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewBufferString(`{"username":"user@example.com","password":"secret"}`))
 	rec := httptest.NewRecorder()
 
