@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/ratifydata/ratify/internal/config"
 	"github.com/ratifydata/ratify/internal/schema"
 )
 
@@ -32,10 +33,10 @@ func TestSchemaConnectionHandlerSuccess(t *testing.T) {
 		"password":"secret",
 		"database_name":"warehouse",
 		"ssl_mode":"require",
-		"ssl_enable":true,
+		"ssl_enabled":true,
 		"driver_name":"pgx"
 	}`)
-	req := httptest.NewRequest(http.MethodPost, "/schema/inspect", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/connections", body)
 	rec := httptest.NewRecorder()
 
 	schemaConnectionHandler(inspector).ServeHTTP(rec, req)
@@ -53,7 +54,7 @@ func TestSchemaConnectionHandlerSuccess(t *testing.T) {
 		Password:     "secret",
 		DatabaseName: "warehouse",
 		SSLMode:      "require",
-		SSlEnable:    true,
+		SSlEnabled:   true,
 		DriverName:   "pgx",
 	}
 	if inspector.params != want {
@@ -63,7 +64,7 @@ func TestSchemaConnectionHandlerSuccess(t *testing.T) {
 
 func TestSchemaConnectionHandlerInvalidJSON(t *testing.T) {
 	inspector := &stubInspectionValidator{}
-	req := httptest.NewRequest(http.MethodPost, "/schema/inspect", bytes.NewBufferString(`{`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/connections", bytes.NewBufferString(`{`))
 	rec := httptest.NewRecorder()
 
 	schemaConnectionHandler(inspector).ServeHTTP(rec, req)
@@ -78,7 +79,7 @@ func TestSchemaConnectionHandlerInvalidJSON(t *testing.T) {
 
 func TestSchemaConnectionHandlerInspectionFailure(t *testing.T) {
 	inspector := &stubInspectionValidator{err: errors.New("connection refused")}
-	req := httptest.NewRequest(http.MethodPost, "/schema/inspect", bytes.NewBufferString(`{"host":"database.example.com"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/connections", bytes.NewBufferString(`{"host":"database.example.com"}`))
 	rec := httptest.NewRecorder()
 
 	schemaConnectionHandler(inspector).ServeHTTP(rec, req)
@@ -95,8 +96,9 @@ func TestSchemaConnectionHandlerInspectionFailure(t *testing.T) {
 }
 
 func TestNewRouterProtectsSchemaInspectionWithAPIKey(t *testing.T) {
-	router := NewRouter(nil)
-	req := httptest.NewRequest(http.MethodPost, "/schema/inspect", bytes.NewBufferString(`{}`))
+
+	router := NewRouter(nil, &config.Config{EncryptionKey: "enc-test-key"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/connections", bytes.NewBufferString(`{}`))
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
