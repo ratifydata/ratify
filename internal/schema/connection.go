@@ -15,9 +15,9 @@ func EstablishConnection(driver, dns string) (*sql.DB, error) {
 		slog.Error("Failed to open database connection")
 		return nil, err
 	}
-	//We run a PingContext  to verify if we can reach the external database within a specific period
+	//We run a PingContext  to verify if we can reach the external database within 10 seconds.
 	//PingContext preferred over Ping for a customized timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
 		slog.Error("Failed to ping database. A network issue or wrong dns configuration")

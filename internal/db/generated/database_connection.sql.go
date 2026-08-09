@@ -36,11 +36,11 @@ type CreateDatabaseConnectionParams struct {
 	Port              int32
 	DatabaseName      string
 	Username          string
-	PasswordEncrypted string
+	PasswordEncrypted []byte
 	SslEnabled        bool
 	SslMode           string
 	Status            string
-	Nonce             string
+	Nonce             []byte
 }
 
 func (q *Queries) CreateDatabaseConnection(ctx context.Context, arg CreateDatabaseConnectionParams) (DatabaseConnection, error) {
@@ -186,11 +186,11 @@ type UpdateDatabaseConnectionParams struct {
 	Port              int32
 	DatabaseName      string
 	Username          string
-	PasswordEncrypted string
+	PasswordEncrypted []byte
 	SslEnabled        bool
 	SslMode           string
 	Status            string
-	Nonce             string
+	Nonce             []byte
 }
 
 func (q *Queries) UpdateDatabaseConnection(ctx context.Context, arg UpdateDatabaseConnectionParams) (DatabaseConnection, error) {

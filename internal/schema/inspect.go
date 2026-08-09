@@ -3,7 +3,7 @@ package schema
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/url"
@@ -70,15 +70,19 @@ func (i *Inspector) SchemaInspection(ctx context.Context, params ConnectionParam
 		return err
 	}
 
-	orgId, _ := ctx.Value("OrgID").(pgtype.UUID)
+	//Assert ctx value !nil
+	orgId, ok := ctx.Value("OrgID").(pgtype.UUID)
+	if !ok {
+		return fmt.Errorf("OrgID missing from context")
+	}
 
 	args := sqlc.CreateDatabaseConnectionParams{
 		DatabaseName:      params.DatabaseName,
 		Host:              params.Host,
 		Port:              int32(params.Port),
 		Username:          params.Username,
-		PasswordEncrypted: base64.StdEncoding.EncodeToString(enc.CipherText),
-		Nonce:             base64.StdEncoding.EncodeToString(enc.Nonce),
+		PasswordEncrypted: enc.CipherText,
+		Nonce:             enc.Nonce,
 		OrgID:             orgId,
 		SslMode:           params.SSLMode,
 		SslEnabled:        params.SSlEnabled,

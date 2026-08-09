@@ -122,7 +122,7 @@ type DatabaseConnection struct {
 	Port              int32
 	DatabaseName      string
 	Username          string
-	PasswordEncrypted string
+	PasswordEncrypted []byte
 	SslEnabled        bool
 	SslMode           string
 	Status            string
@@ -130,7 +130,7 @@ type DatabaseConnection struct {
 	LastTestPassed    pgtype.Bool
 	CreatedAt         pgtype.Timestamptz
 	UpdatedAt         pgtype.Timestamptz
-	Nonce             string
+	Nonce             []byte
 }
 
 type NotificationLog struct {

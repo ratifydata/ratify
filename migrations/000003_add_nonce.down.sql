@@ -4,4 +4,5 @@
 -- Drops database_connection in 000003_add_nonce_schema.up.sql.
 -- =============================================================================
 
-DROP TABLE IF EXISTS database_connections;
+ALTER TABLE IF EXISTS database_connections DROP COLUMN nonce;
+ALTER TABLE IF EXISTS database_connections DROP COLUMN password_encrypted;

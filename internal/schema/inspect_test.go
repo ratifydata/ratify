@@ -1,8 +1,8 @@
 package schema
 
 import (
+	"bytes"
 	"context"
-	"encoding/base64"
 	"net/url"
 	"strconv"
 	"strings"
@@ -65,18 +65,10 @@ func TestSchemaInspection(t *testing.T) {
 			got.Host, got.Port, got.DatabaseName, got.Username,
 			params.Host, params.Port, params.DatabaseName, params.Username)
 	}
-	if got.PasswordEncrypted == params.Password {
+	if bytes.Equal(got.PasswordEncrypted, []byte(params.Password)) {
 		t.Error("stored password was not encrypted")
 	}
-	nonce, err := base64.StdEncoding.DecodeString(got.Nonce)
-	if err != nil {
-		t.Fatalf("decode stored nonce: %v", err)
-	}
-	cipherText, err := base64.StdEncoding.DecodeString(got.PasswordEncrypted)
-	if err != nil {
-		t.Fatalf("decode stored password: %v", err)
-	}
-	plainText, err := auth.Decrypt(nonce, cipherText, []byte(inspectionEncryptionKey))
+	plainText, err := auth.Decrypt(got.Nonce, got.PasswordEncrypted, []byte(inspectionEncryptionKey))
 	if err != nil {
 		t.Fatalf("decrypt stored password: %v", err)
 	}
