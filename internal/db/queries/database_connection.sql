@@ -20,7 +20,8 @@ SELECT * FROM database_connections
 WHERE id = $1;
 
 -- name: ListDatabaseConnectionsByOrg :many
-SELECT * FROM database_connections
+SELECT id,display_name,host,port,database_name,username,ssl_enabled,ssl_mode, status
+FROM database_connections
 WHERE org_id = $1
 ORDER BY display_name;
 

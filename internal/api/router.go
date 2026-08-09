@@ -30,6 +30,7 @@ func NewRouter(pool *db.Pool, cfg *config.Config) *chi.Mux {
 	r.Group(func(r chi.Router) {
 		r.Use(apiMiddleware.ApiKeyAuthHandler(apiKey))
 		r.Post("/api/v1/connections", schemaConnectionHandler(inspector))
+		r.Get("/api/v1/connections", listDatabaseConnections(inspector))
 	})
 
 	return r

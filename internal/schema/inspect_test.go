@@ -58,12 +58,16 @@ func TestSchemaInspection(t *testing.T) {
 		t.Fatalf("stored connection count = %d, want 1", len(connections))
 	}
 
-	got := connections[0]
-	if got.Host != params.Host || got.Port != int32(params.Port) ||
-		got.DatabaseName != params.DatabaseName || got.Username != params.Username {
+	listed := connections[0]
+	if listed.Host != params.Host || listed.Port != int32(params.Port) ||
+		listed.DatabaseName != params.DatabaseName || listed.Username != params.Username {
 		t.Errorf("stored connection endpoint = %s:%d/%s as %s, want %s:%d/%s as %s",
-			got.Host, got.Port, got.DatabaseName, got.Username,
+			listed.Host, listed.Port, listed.DatabaseName, listed.Username,
 			params.Host, params.Port, params.DatabaseName, params.Username)
+	}
+	got, err := queries.GetDatabaseConnection(ctx, listed.ID)
+	if err != nil {
+		t.Fatalf("get stored database connection: %v", err)
 	}
 	if bytes.Equal(got.PasswordEncrypted, []byte(params.Password)) {
 		t.Error("stored password was not encrypted")
@@ -74,6 +78,99 @@ func TestSchemaInspection(t *testing.T) {
 	}
 	if plainText != params.Password {
 		t.Errorf("decrypted password = %q, want %q", plainText, params.Password)
+	}
+}
+
+func TestListDatabaseConnections(t *testing.T) {
+	ctx := context.Background()
+	queries := sqlc.New(testDB.Pool)
+	org, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
+		Name: "List Connections Test",
+		Slug: "list-connections-test",
+	})
+	if err != nil {
+		t.Fatalf("create test organization: %v", err)
+	}
+
+	created, err := queries.CreateDatabaseConnection(ctx, sqlc.CreateDatabaseConnectionParams{
+		OrgID:             org.ID,
+		DisplayName:       "Warehouse",
+		Host:              "database.example.com",
+		Port:              5432,
+		DatabaseName:      "analytics",
+		Username:          "ratify",
+		PasswordEncrypted: []byte("encrypted-password"),
+		Nonce:             []byte("nonce"),
+		SslEnabled:        true,
+		SslMode:           "require",
+		Status:            "ACTIVE",
+	})
+	if err != nil {
+		t.Fatalf("create test database connection: %v", err)
+	}
+
+	ctx = context.WithValue(ctx, "OrgID", org.ID)
+	inspector := NewInspector(queries, inspectionEncryptionKey)
+	connections, err := inspector.ListDatabaseConnections(ctx)
+	if err != nil {
+		t.Fatalf("ListDatabaseConnections() error = %v, want nil", err)
+	}
+	if len(connections) != 1 {
+		t.Fatalf("ListDatabaseConnections() count = %d, want 1", len(connections))
+	}
+
+	want := StoredConnection{
+		ID:           created.ID,
+		DisplayName:  "Warehouse",
+		Host:         "database.example.com",
+		Port:         5432,
+		DatabaseName: "analytics",
+		Username:     "ratify",
+		SSLEnabled:   true,
+		SSLMode:      "require",
+		Status:       "ACTIVE",
+	}
+	if connections[0] != want {
+		t.Errorf("ListDatabaseConnections() = %+v, want %+v", connections[0], want)
+	}
+}
+
+func TestListDatabaseConnectionsEmpty(t *testing.T) {
+	ctx := context.Background()
+	queries := sqlc.New(testDB.Pool)
+	org, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
+		Name: "Empty Connections Test",
+		Slug: "empty-connections-test",
+	})
+	if err != nil {
+		t.Fatalf("create test organization: %v", err)
+	}
+
+	ctx = context.WithValue(ctx, "OrgID", org.ID)
+	connections, err := NewInspector(queries, inspectionEncryptionKey).ListDatabaseConnections(ctx)
+	if err != nil {
+		t.Fatalf("ListDatabaseConnections() error = %v, want nil", err)
+	}
+	if connections == nil {
+		t.Fatal("ListDatabaseConnections() returned nil, want an empty slice")
+	}
+	if len(connections) != 0 {
+		t.Errorf("ListDatabaseConnections() count = %d, want 0", len(connections))
+	}
+}
+
+func TestListDatabaseConnectionsMissingOrgID(t *testing.T) {
+	inspector := NewInspector(sqlc.New(testDB.Pool), inspectionEncryptionKey)
+
+	connections, err := inspector.ListDatabaseConnections(context.Background())
+	if err == nil {
+		t.Fatal("ListDatabaseConnections() error = nil, want missing OrgID error")
+	}
+	if connections != nil {
+		t.Errorf("ListDatabaseConnections() = %+v, want nil", connections)
+	}
+	if !strings.Contains(err.Error(), "OrgID missing from context") {
+		t.Errorf("ListDatabaseConnections() error = %q, want missing OrgID error", err)
 	}
 }
 

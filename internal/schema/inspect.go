@@ -24,7 +24,17 @@ type ConnectionParams struct {
 	SSlEnabled   bool   `json:"ssl_enabled"`
 	DriverName   string `json:"driver_name"`
 }
-
+type StoredConnection struct {
+	ID           pgtype.UUID `json:"id"`
+	DisplayName  string      `json:"display_name"`
+	Host         string      `json:"host"`
+	Port         int32       `json:"port"`
+	DatabaseName string      `json:"database_name"`
+	Username     string      `json:"username"`
+	SSLEnabled   bool        `json:"ssl_enabled"`
+	SSLMode      string      `json:"ssl_mode"`
+	Status       string      `json:"status"`
+}
 type Inspector struct {
 	db     *sqlc.Queries
 	encKey string
@@ -97,4 +107,35 @@ func (i *Inspector) SchemaInspection(ctx context.Context, params ConnectionParam
 	}
 	return nil
 
+}
+
+func (i *Inspector) ListDatabaseConnections(ctx context.Context) ([]StoredConnection, error) {
+
+	orgID, ok := ctx.Value("OrgID").(pgtype.UUID)
+	if !ok || !orgID.Valid {
+		slog.Error("OrgID missing from context")
+		return nil, fmt.Errorf("OrgID missing from context")
+	}
+
+	dbConnections, err := i.db.ListDatabaseConnectionsByOrg(ctx, orgID)
+	if err != nil {
+		slog.Error("error listing database connections")
+		return nil, err
+	}
+	connections := make([]StoredConnection, 0, len(dbConnections))
+	for _, dbConn := range dbConnections {
+		connections = append(connections, StoredConnection{
+			ID:           dbConn.ID,
+			DisplayName:  dbConn.DisplayName,
+			Host:         dbConn.Host,
+			Port:         dbConn.Port,
+			DatabaseName: dbConn.DatabaseName,
+			Username:     dbConn.Username,
+			SSLEnabled:   dbConn.SslEnabled,
+			SSLMode:      dbConn.SslMode,
+			Status:       dbConn.Status,
+		})
+	}
+
+	return connections, nil
 }

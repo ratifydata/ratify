@@ -119,37 +119,43 @@ func (q *Queries) GetDatabaseConnection(ctx context.Context, id pgtype.UUID) (Da
 }
 
 const listDatabaseConnectionsByOrg = `-- name: ListDatabaseConnectionsByOrg :many
-SELECT id, org_id, display_name, host, port, database_name, username, password_encrypted, ssl_enabled, ssl_mode, status, last_tested_at, last_test_passed, created_at, updated_at, nonce FROM database_connections
+SELECT id,display_name,host,port,database_name,username,ssl_enabled,ssl_mode, status
+FROM database_connections
 WHERE org_id = $1
 ORDER BY display_name
 `
 
-func (q *Queries) ListDatabaseConnectionsByOrg(ctx context.Context, orgID pgtype.UUID) ([]DatabaseConnection, error) {
+type ListDatabaseConnectionsByOrgRow struct {
+	ID           pgtype.UUID
+	DisplayName  string
+	Host         string
+	Port         int32
+	DatabaseName string
+	Username     string
+	SslEnabled   bool
+	SslMode      string
+	Status       string
+}
+
+func (q *Queries) ListDatabaseConnectionsByOrg(ctx context.Context, orgID pgtype.UUID) ([]ListDatabaseConnectionsByOrgRow, error) {
 	rows, err := q.db.Query(ctx, listDatabaseConnectionsByOrg, orgID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []DatabaseConnection
+	var items []ListDatabaseConnectionsByOrgRow
 	for rows.Next() {
-		var i DatabaseConnection
+		var i ListDatabaseConnectionsByOrgRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.OrgID,
 			&i.DisplayName,
 			&i.Host,
 			&i.Port,
 			&i.DatabaseName,
 			&i.Username,
-			&i.PasswordEncrypted,
 			&i.SslEnabled,
 			&i.SslMode,
 			&i.Status,
-			&i.LastTestedAt,
-			&i.LastTestPassed,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.Nonce,
 		); err != nil {
 			return nil, err
 		}
