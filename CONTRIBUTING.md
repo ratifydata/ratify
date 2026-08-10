@@ -106,6 +106,8 @@ confusing errors.
 
 ### Getting the application running
 
+
+### 1. Clone repository
 ```bash
 # Clone the repository
 git clone https://github.com/ratifydata/ratify.git
@@ -114,10 +116,26 @@ cd ratify
 # Copy the environment file
 # The defaults in .env.example work for local development
 cp .env.example .env
+```
+### 2. Configure Encryption Key
 
+Generate a 256-bit encryption key
+```bash
+openssl rand -hex 32
+```
+Store the generated key in the .env file.
+
+**The Encryption Key is only generated once.
+Do not generate a new key on restarting or upgrading the application.**
+ 
+### 3. Start Application
+
+```bash
 # Start the application and its database
 docker compose up
 ```
+
+
 
 Wait about 30 seconds. When you see log output from both the `app`
 and `postgres` containers without errors, the application is running.
