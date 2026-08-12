@@ -3,11 +3,13 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/ratifydata/ratify/internal/config"
 	"github.com/ratifydata/ratify/internal/schema"
 )
@@ -22,6 +24,17 @@ func (f *stubInspectionValidator) SchemaInspection(_ context.Context, params sch
 	f.calls++
 	f.params = params
 	return f.err
+}
+
+type stubConnectionLister struct {
+	err         error
+	calls       int
+	connections []schema.StoredConnection
+}
+
+func (f *stubConnectionLister) ListDatabaseConnections(_ context.Context) ([]schema.StoredConnection, error) {
+	f.calls++
+	return f.connections, f.err
 }
 
 func TestSchemaConnectionHandlerSuccess(t *testing.T) {
@@ -92,6 +105,92 @@ func TestSchemaConnectionHandlerInspectionFailure(t *testing.T) {
 	}
 	if rec.Body.String() != "connection refused\n" {
 		t.Errorf("got response body %q, want %q", rec.Body.String(), "connection refused\\n")
+	}
+}
+
+func TestListDatabaseConnectionsHandlerSuccess(t *testing.T) {
+	id := pgtype.UUID{
+		Bytes: [16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
+		Valid: true,
+	}
+	want := []schema.StoredConnection{{
+		ID:           id,
+		DisplayName:  "Warehouse",
+		Host:         "database.example.com",
+		Port:         5432,
+		DatabaseName: "analytics",
+		Username:     "ratify",
+		SSLEnabled:   true,
+		SSLMode:      "require",
+		Status:       "ACTIVE",
+	}}
+	lister := &stubConnectionLister{connections: want}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/connections", nil)
+	rec := httptest.NewRecorder()
+
+	listDatabaseConnections(lister).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got status %d, want %d", rec.Code, http.StatusOK)
+	}
+	if lister.calls != 1 {
+		t.Fatalf("expected lister to be called once, got %d calls", lister.calls)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/json" {
+		t.Errorf("Content-Type = %q, want %q", got, "application/json")
+	}
+
+	var got []schema.StoredConnection
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response body: %v", err)
+	}
+	if len(got) != 1 || got[0] != want[0] {
+		t.Errorf("response connections = %+v, want %+v", got, want)
+	}
+}
+
+func TestListDatabaseConnectionsHandlerEmpty(t *testing.T) {
+	lister := &stubConnectionLister{connections: nil}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/connections", nil)
+	rec := httptest.NewRecorder()
+
+	listDatabaseConnections(lister).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got status %d, want %d", rec.Code, http.StatusOK)
+	}
+	if rec.Body.String() != "[]" {
+		t.Errorf("response body = %q, want %q", rec.Body.String(), "[]")
+	}
+}
+
+func TestListDatabaseConnectionsHandlerFailure(t *testing.T) {
+	lister := &stubConnectionLister{err: errors.New("database unavailable")}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/connections", nil)
+	rec := httptest.NewRecorder()
+
+	listDatabaseConnections(lister).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("got status %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+	if lister.calls != 1 {
+		t.Fatalf("expected lister to be called once, got %d calls", lister.calls)
+	}
+	if rec.Body.String() != "Internal Server Error\n" {
+		t.Errorf("response body = %q, want %q", rec.Body.String(), "Internal Server Error\\n")
+	}
+}
+
+func TestNewRouterProtectsConnectionListingWithAPIKey(t *testing.T) {
+	router := NewRouter(nil, &config.Config{EncryptionKey: "enc-test-key"})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/connections", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("got status %d, want %d", rec.Code, http.StatusUnauthorized)
 	}
 }
 
