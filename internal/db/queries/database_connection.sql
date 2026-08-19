@@ -42,15 +42,12 @@ SET
 WHERE id = $1
 RETURNING *;
 
--- name: UpdateDatabaseConnectionTestResult :one
+-- name: UpdateDatabaseConnectionTestResult :exec
 UPDATE database_connections
 SET
-    status = $2,
     last_tested_at = NOW(),
-    last_test_passed = $3,
-    updated_at = NOW()
-WHERE id = $1
-RETURNING *;
+    last_test_passed = $2
+WHERE id = $1;
 
 -- name: DeleteDatabaseConnection :exec
 DELETE FROM database_connections

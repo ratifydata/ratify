@@ -235,43 +235,20 @@ func (q *Queries) UpdateDatabaseConnection(ctx context.Context, arg UpdateDataba
 	return i, err
 }
 
-const updateDatabaseConnectionTestResult = `-- name: UpdateDatabaseConnectionTestResult :one
+const updateDatabaseConnectionTestResult = `-- name: UpdateDatabaseConnectionTestResult :exec
 UPDATE database_connections
 SET
-    status = $2,
     last_tested_at = NOW(),
-    last_test_passed = $3,
-    updated_at = NOW()
+    last_test_passed = $2
 WHERE id = $1
-RETURNING id, org_id, display_name, host, port, database_name, username, password_encrypted, ssl_enabled, ssl_mode, status, last_tested_at, last_test_passed, created_at, updated_at, nonce
 `
 
 type UpdateDatabaseConnectionTestResultParams struct {
 	ID             pgtype.UUID
-	Status         string
 	LastTestPassed pgtype.Bool
 }
 
-func (q *Queries) UpdateDatabaseConnectionTestResult(ctx context.Context, arg UpdateDatabaseConnectionTestResultParams) (DatabaseConnection, error) {
-	row := q.db.QueryRow(ctx, updateDatabaseConnectionTestResult, arg.ID, arg.Status, arg.LastTestPassed)
-	var i DatabaseConnection
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.DisplayName,
-		&i.Host,
-		&i.Port,
-		&i.DatabaseName,
-		&i.Username,
-		&i.PasswordEncrypted,
-		&i.SslEnabled,
-		&i.SslMode,
-		&i.Status,
-		&i.LastTestedAt,
-		&i.LastTestPassed,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Nonce,
-	)
-	return i, err
+func (q *Queries) UpdateDatabaseConnectionTestResult(ctx context.Context, arg UpdateDatabaseConnectionTestResultParams) error {
+	_, err := q.db.Exec(ctx, updateDatabaseConnectionTestResult, arg.ID, arg.LastTestPassed)
+	return err
 }
