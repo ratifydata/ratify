@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/ratifydata/ratify/internal/schema"
 )
 
@@ -15,6 +16,15 @@ type inspectionValidator interface {
 
 type connectionLister interface {
 	ListDatabaseConnections(ctx context.Context) ([]schema.StoredConnection, error)
+}
+
+type connectionTester interface {
+	TestConnection(ctx context.Context, id pgtype.UUID) error
+}
+
+type Response struct {
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
 }
 
 func schemaConnectionHandler(inspector inspectionValidator) http.HandlerFunc {
@@ -58,4 +68,38 @@ func listDatabaseConnections(inspector connectionLister) http.HandlerFunc {
 		}
 	}
 
+}
+
+func testConnection(inspector connectionTester) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if id == "" {
+			writeJSONResponse(w, http.StatusBadRequest, Response{Status: "err", Message: "no connection id"})
+			return
+		}
+		var connId pgtype.UUID
+		err := connId.Scan(id)
+		if err != nil {
+			slog.Error("invalid database connection id", "error", err)
+			writeJSONResponse(w, http.StatusBadRequest, Response{Status: "err", Message: "invalid connection id"})
+			return
+		}
+
+		err = inspector.TestConnection(r.Context(), connId)
+		if err != nil {
+			writeJSONResponse(w, http.StatusInternalServerError, Response{Status: "err", Message: err.Error()})
+			return
+		}
+
+		writeJSONResponse(w, http.StatusOK, Response{Status: "ok"})
+	}
+
+}
+
+func writeJSONResponse(w http.ResponseWriter, statusCode int, response Response) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		slog.Error("failed to encode response", "error", err)
+	}
 }

@@ -31,6 +31,7 @@ func NewRouter(pool *db.Pool, cfg *config.Config) *chi.Mux {
 		r.Use(apiMiddleware.ApiKeyAuthHandler(apiKey))
 		r.Post("/api/v1/connections", schemaConnectionHandler(inspector))
 		r.Get("/api/v1/connections", listDatabaseConnections(inspector))
+		r.Post("/api/v1/connections/{id}/test", testConnection(inspector))
 	})
 
 	return r
