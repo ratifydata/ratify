@@ -38,6 +38,14 @@ type StoredConnection struct {
 	Status       string      `json:"status"`
 }
 
+type SSL_MODE string
+
+const (
+	DISABLED    SSL_MODE = "disabled"
+	VERIFY_CA   SSL_MODE = "verify-ca"
+	VERIFY_FULL SSL_MODE = "verify-full"
+)
+
 type inspectorStore interface {
 	CreateDatabaseConnection(context.Context, sqlc.CreateDatabaseConnectionParams) (sqlc.DatabaseConnection, error)
 	GetDatabaseConnection(context.Context, pgtype.UUID) (sqlc.DatabaseConnection, error)

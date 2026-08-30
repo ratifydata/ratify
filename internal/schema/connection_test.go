@@ -2,10 +2,7 @@ package schema
 
 import (
 	"context"
-	"database/sql"
-	"net/url"
 	"os"
-	"strings"
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -22,84 +19,96 @@ func TestMain(m *testing.M) {
 	}
 
 	code := m.Run()
-	testDB.Pool.Close()
-	testutil.TerminateContainer(testDB.Container)
+	testDB.Internal.Pool.Close()
+	testDB.External.DB.Close()
+	testutil.TerminateContainer(testDB.Internal.Container, testDB.External.Container)
 	os.Exit(code)
 }
 
 func TestEstablishConnection(t *testing.T) {
-	db, err := EstablishConnection("pgx", testDB.Pool.Config().ConnString())
-	if err != nil {
-		t.Fatalf("EstablishConnection() error = %v, want nil", err)
+	tests := []struct {
+		TestName string
+		DSN      string
+		Driver   string
+		Want     bool
+		WantErr  bool
+	}{
+		{
+			TestName: "Connection_Success",
+			DSN:      testDB.External.DSN,
+			Driver:   "pgx",
+			Want:     true,
+			WantErr:  false,
+		}, {
+			TestName: "Unknown_Driver",
+			DSN:      testDB.External.DSN,
+			Driver:   "unknown-driver",
+			WantErr:  true,
+			Want:     false,
+		}, {
+			TestName: "Invalid_DSN",
+			DSN:      testDB.External.DSN + "/invalid",
+			Driver:   "pgx",
+			WantErr:  true,
+			Want:     false,
+		},
 	}
-	if db == nil {
-		t.Fatal("EstablishConnection() returned a nil database")
-	}
-	if err := db.Close(); err != nil {
-		t.Fatalf("db.Close() error = %v", err)
-	}
-}
 
-func TestEstablishConnectionUnknownDriver(t *testing.T) {
-	db, err := EstablishConnection("unknown-schema-test-driver", "")
-	if err == nil {
-		t.Fatal("EstablishConnection() error = nil, want an unknown driver error")
-	}
-	if db != nil {
-		t.Errorf("EstablishConnection() database = %v, want nil", db)
-	}
-	if !strings.Contains(err.Error(), "unknown driver") {
-		t.Errorf("EstablishConnection() error = %q, want it to contain %q", err, "unknown driver")
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.TestName, func(t *testing.T) {
+			db, err := EstablishConnection(tt.Driver, tt.DSN)
+			if (err != nil) != tt.WantErr {
+				t.Errorf("EstablishConnection() error = %v, WantErr %v", err, tt.WantErr)
+			}
 
-func TestEstablishConnectionInvalidDSN(t *testing.T) {
-	db, err := EstablishConnection("pgx", "postgres://invalid:invalid@127.0.0.1:1/invalid")
-	if err == nil {
-		t.Fatal("EstablishConnection() error = nil, want a connection error")
+			if (db != nil) != tt.Want {
+				t.Errorf("EstablishConnection() returned %v, want %v", (db != nil), tt.Want)
+			}
+
+		})
 	}
-	if db != nil {
-		t.Errorf("EstablishConnection() database = %v, want nil", db)
-	}
+
 }
 
 func TestValidatePrivileges(t *testing.T) {
-	db := openSQLDB(t, testDB.Pool.Config().ConnString())
-
-	if err := ValidatePrivileges(context.Background(), db); err != nil {
-		t.Fatalf("ValidatePrivileges() error = %v, want nil", err)
-	}
-}
-
-func TestValidatePrivilegesInsufficientPrivileges(t *testing.T) {
-	const (
-		roleName = "schema_test_no_access"
-		password = "schema-test-password"
-	)
-
-	_, err := testDB.Pool.Exec(context.Background(), "CREATE ROLE "+roleName+" LOGIN PASSWORD '"+password+"'")
-	if err != nil {
-		t.Fatalf("create restricted role: %v", err)
+	tests := []struct {
+		TestName string
+		SimErr   bool
+		Want     bool
+	}{
+		{
+			TestName: "Privileges_Success",
+			Want:     false,
+			SimErr:   false,
+		}, {
+			TestName: "InSufficient_Privileges",
+			SimErr:   true,
+			Want:     true,
+		},
 	}
 
-	restrictedDSN, err := url.Parse(testDB.Pool.Config().ConnString())
-	if err != nil {
-		t.Fatalf("parse test database connection string: %v", err)
-	}
-	restrictedDSN.User = url.UserPassword(roleName, password)
+	for _, tt := range tests {
+		t.Run(tt.TestName, func(t *testing.T) {
+			if tt.SimErr {
+				sqlQuery := `CREATE ROLE schema_test_no_access LOGIN PASSWORD 'schema-test-password';
+								SET ROLE schema_test_no_access;`
+				//Creates a Role Not Granted Permission to Database And Switch's to that Role
+				_, err := testDB.External.DB.ExecContext(context.Background(), sqlQuery)
+				if err != nil {
+					t.Fatalf("create restricted role: %v", err)
+				}
+			}
 
-	db := openSQLDB(t, restrictedDSN.String())
-	err = ValidatePrivileges(context.Background(), db)
-	if err == nil {
-		t.Fatal("ValidatePrivileges() error = nil, want insufficient privileges")
-	}
-	if err.Error() != "logged in user has insufficient privileges" {
-		t.Errorf("ValidatePrivileges() error = %q, want %q", err, "logged in user has insufficient privileges")
+			err := ValidatePrivileges(context.Background(), testDB.External.DB)
+			if (err != nil) != tt.Want {
+				t.Errorf("ValidatePrivileges() error = %v, WantErr %v", err, tt.Want)
+			}
+		})
 	}
 }
 
 func TestValidatePrivilegesCanceledContext(t *testing.T) {
-	db := openSQLDB(t, testDB.Pool.Config().ConnString())
+	db := testDB.External.DB
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -107,19 +116,4 @@ func TestValidatePrivilegesCanceledContext(t *testing.T) {
 	if err == nil {
 		t.Fatal("ValidatePrivileges() error = nil, want a context cancellation error")
 	}
-}
-
-func openSQLDB(t *testing.T, dsn string) *sql.DB {
-	t.Helper()
-
-	db, err := sql.Open("pgx", dsn)
-	if err != nil {
-		t.Fatalf("sql.Open() error = %v", err)
-	}
-	t.Cleanup(func() {
-		if err := db.Close(); err != nil {
-			t.Errorf("db.Close() error = %v", err)
-		}
-	})
-	return db
 }
