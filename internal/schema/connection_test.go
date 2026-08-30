@@ -28,6 +28,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestEstablishConnection(t *testing.T) {
+	ctx := context.Background()
 	tests := []struct {
 		TestName string
 		DSN      string
@@ -58,7 +59,7 @@ func TestEstablishConnection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.TestName, func(t *testing.T) {
-			db, err := EstablishConnection(tt.Driver, tt.DSN)
+			db, err := EstablishConnection(ctx, tt.Driver, tt.DSN)
 			if (err != nil) != tt.WantErr {
 				t.Errorf("EstablishConnection() error = %v, WantErr %v", err, tt.WantErr)
 			}

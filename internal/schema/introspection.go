@@ -71,7 +71,12 @@ func GetTableSchema(ctx context.Context, db *sql.DB, tableName string) ([]TableD
 
 	var columnList []TableData
 	row, err := db.QueryContext(ctx, table_column_query, tableName)
-	defer row.Close()
+	defer func(row *sql.Rows) {
+		err := row.Close()
+		if err != nil {
+			slog.Error("failed to close table schema", "err", err)
+		}
+	}(row)
 	if err != nil {
 		return nil, err
 	}

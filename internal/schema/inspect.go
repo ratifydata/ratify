@@ -211,7 +211,7 @@ func establishRemoteConnection(ctx context.Context, params ConnectionParams) err
 	q.Set("sslmode", params.SSLMode)
 	u.RawQuery = q.Encode()
 
-	db, err := EstablishConnection(params.DriverName, u.String())
+	db, err := EstablishConnection(ctx, params.DriverName, u.String())
 	if err != nil {
 		slog.Error("error establishing connection to driver")
 		return err
