@@ -2,6 +2,8 @@ package schema
 
 import (
 	"context"
+	"database/sql"
+	"net/url"
 	"os"
 	"testing"
 
@@ -71,40 +73,49 @@ func TestEstablishConnection(t *testing.T) {
 }
 
 func TestValidatePrivileges(t *testing.T) {
-	tests := []struct {
-		TestName string
-		SimErr   bool
-		Want     bool
-	}{
-		{
-			TestName: "Privileges_Success",
-			Want:     false,
-			SimErr:   false,
-		}, {
-			TestName: "InSufficient_Privileges",
-			SimErr:   true,
-			Want:     true,
-		},
-	}
+	t.Run("Privileges_Success", func(t *testing.T) {
+		if err := ValidatePrivileges(t.Context(), testDB.External.DB); err != nil {
+			t.Fatalf("ValidatePrivileges() error = %v, want nil", err)
+		}
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.TestName, func(t *testing.T) {
-			if tt.SimErr {
-				sqlQuery := `CREATE ROLE schema_test_no_access LOGIN PASSWORD 'schema-test-password';
-								SET ROLE schema_test_no_access;`
-				//Creates a Role Not Granted Permission to Database And Switch's to that Role
-				_, err := testDB.External.DB.ExecContext(context.Background(), sqlQuery)
-				if err != nil {
-					t.Fatalf("create restricted role: %v", err)
-				}
-			}
+	t.Run("Insufficient_Privileges", func(t *testing.T) {
+		const (
+			roleName = "schema_test_no_access"
+			password = "schema-test-password"
+		)
 
-			err := ValidatePrivileges(context.Background(), testDB.External.DB)
-			if (err != nil) != tt.Want {
-				t.Errorf("ValidatePrivileges() error = %v, WantErr %v", err, tt.Want)
+		if _, err := testDB.External.DB.ExecContext(t.Context(),
+			`CREATE ROLE schema_test_no_access LOGIN PASSWORD 'schema-test-password'`); err != nil {
+			t.Fatalf("create restricted role: %v", err)
+		}
+		t.Cleanup(func() {
+			if _, err := testDB.External.DB.ExecContext(context.Background(),
+				`DROP ROLE IF EXISTS schema_test_no_access`); err != nil {
+				t.Errorf("drop restricted role: %v", err)
 			}
 		})
-	}
+
+		restrictedDSN, err := url.Parse(testDB.External.DSN)
+		if err != nil {
+			t.Fatalf("parse external database DSN: %v", err)
+		}
+		restrictedDSN.User = url.UserPassword(roleName, password)
+
+		restrictedDB, err := sql.Open("pgx", restrictedDSN.String())
+		if err != nil {
+			t.Fatalf("open restricted database connection: %v", err)
+		}
+		t.Cleanup(func() {
+			if err := restrictedDB.Close(); err != nil {
+				t.Errorf("close restricted database connection: %v", err)
+			}
+		})
+
+		if err := ValidatePrivileges(t.Context(), restrictedDB); err == nil {
+			t.Fatal("ValidatePrivileges() error = nil, want insufficient privileges error")
+		}
+	})
 }
 
 func TestValidatePrivilegesCanceledContext(t *testing.T) {
