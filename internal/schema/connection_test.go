@@ -22,7 +22,6 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 	testDB.Internal.Pool.Close()
-	testDB.External.DB.Close()
 	testutil.TerminateContainer(testDB.Internal.Container, testDB.External.Container)
 	os.Exit(code)
 }

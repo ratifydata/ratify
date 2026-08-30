@@ -13,13 +13,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/ratifydata/ratify/internal/db"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/modules/toxiproxy"
 )
 
 type RatifyInternalTestContainer struct {
-	Container      *postgres.PostgresContainer
-	Pool           *pgxpool.Pool
-	proxyContainer *toxiproxy.Container
+	Container *postgres.PostgresContainer
+	Pool      *pgxpool.Pool
 }
 
 type ClientExternalTestContainer struct {
@@ -77,19 +75,6 @@ func InitializePostgresContainer() (*TestContainer, error) {
 		return nil, err
 	}
 
-	//Start toxiproxyContainer on Ratify's Internal Database
-	toxiproxyContainer, err := toxiproxy.Run(ctx, "ghcr.io/shopify/toxiproxy:2.12.0")
-	defer func() {
-		if err := toxiproxyContainer.Terminate(ctx); err != nil {
-			slog.Error("error terminating toxiproxy container")
-		}
-	}()
-	if err != nil {
-		slog.Error("error running toxiproxy container")
-		TerminateContainer(internalPostgresContainer)
-		return nil, err
-	}
-
 	//Initializes External Client Postgres Container
 
 	clientExtContainer, err := initPostgresContainer(ctx, "org-test-database")
@@ -130,9 +115,8 @@ func InitializePostgresContainer() (*TestContainer, error) {
 	slog.Info("postgres container initialized")
 	return &TestContainer{
 		Internal: RatifyInternalTestContainer{
-			Container:      internalPostgresContainer,
-			Pool:           pool,
-			proxyContainer: toxiproxyContainer,
+			Container: internalPostgresContainer,
+			Pool:      pool,
 		},
 		External: ClientExternalTestContainer{
 			Container: clientExtContainer,
