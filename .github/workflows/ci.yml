@@ -266,7 +266,7 @@ jobs:
       # confirm are real (by attempting to use them) — this
       # reduces false positives significantly.
       - name: Scan for committed secrets
-        uses: trufflesecurity/trufflehog@v3.97.0
+        uses: trufflesecurity/trufflehog@v3.97.1
         with:
           path: ./
           base: ${{ github.event.pull_request.base.sha || github.event.before }}
