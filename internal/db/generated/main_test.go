@@ -18,13 +18,15 @@ func TestMain(m *testing.M) {
 
 func runTest(m *testing.M) int {
 	var err error
+	//Initializes Ratify Internal Data And Schema
 	testDB, err = testutil.InitializePostgresContainer()
 	if err != nil {
 		slog.Error("failed to initialize test database")
 		return 1
 	}
 	code := m.Run()
-	testutil.TerminateContainer(testDB.Container)
+	testutil.TerminateContainer(testDB.Internal.Container)
+	testutil.TerminateContainer(testDB.External.Container)
 
 	return code
 }

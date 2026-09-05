@@ -6,20 +6,20 @@ import (
 )
 
 func TestNew(t *testing.T) {
-	tquery := New(testDB.Pool)
+	tquery := New(testDB.Internal.Pool)
 
 	if tquery == nil {
 		t.Fatal("New() returned nil")
 	}
 
-	if tquery.db != testDB.Pool {
+	if tquery.db != testDB.Internal.Pool {
 		t.Fatal("New() did not set db")
 	}
 }
 
 func TestQueries_WithTx(t *testing.T) {
 	ctx := context.Background()
-	tx, err := testDB.Pool.Begin(ctx)
+	tx, err := testDB.Internal.Pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("failed to begin transaction: %v", err)
 	}
@@ -27,7 +27,7 @@ func TestQueries_WithTx(t *testing.T) {
 		_ = tx.Rollback(ctx)
 	})
 
-	tquery := New(testDB.Pool)
+	tquery := New(testDB.Internal.Pool)
 	txQuery := tquery.WithTx(tx)
 
 	if txQuery == nil {
@@ -38,7 +38,7 @@ func TestQueries_WithTx(t *testing.T) {
 		t.Fatal("WithTx() did not use supplied transaction")
 	}
 
-	if tquery.db != testDB.Pool {
+	if tquery.db != testDB.Internal.Pool {
 		t.Fatal("WithTx() modified the original query instance")
 	}
 }
