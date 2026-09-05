@@ -34,8 +34,6 @@ CREATE ROLE :"ratify_username"
 GRANT CONNECT ON DATABASE :"database_name" TO :"ratify_username";
 
 
-\echo 'Database Name: '+:database_name
-
 -- Permit access to objects in the target schema and read existing tables.
 GRANT USAGE ON SCHEMA :"schema_name" TO :"ratify_username";
 GRANT SELECT ON ALL TABLES IN SCHEMA :"schema_name" TO :"ratify_username";
