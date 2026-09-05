@@ -125,6 +125,56 @@ The UI is available at `http://localhost:8080`. That's it.
 
 ### Connect your first database
 
+#### Set up a read-only PostgreSQL user
+
+Ratify should connect to your application database with a dedicated, read-only
+login. The repository includes a [`psql` setup script](docs/setup-ratify-user.sql)
+that grants the minimum access needed to discover tables and inspect their
+columns.
+
+Open `docs/setup-ratify-user.sql` and replace these values at the top of the
+file:
+
+| Variable | Description | Example |
+|---|---|---|
+| `ratify_username` | Login Ratify will use | `ratify_readonly` |
+| `ratify_password` | Strong password for the login | `use-a-secret-manager` |
+| `database_name` | Database Ratify will inspect | `myapp` |
+| `schema_name` | Schema containing the application tables | `public` |
+| `object_owner` | Role that owns or creates those tables | `myapp_owner` |
+
+Run the script as a PostgreSQL administrator or a role permitted to create
+roles and grant privileges for `object_owner`:
+
+```bash
+psql "postgresql://postgres@db.example.com:5432/postgres" \
+  --file docs/setup-ratify-user.sql
+```
+
+The script grants:
+
+- `CONNECT` on the target database;
+- `USAGE` on the target schema;
+- `SELECT` on all existing tables in that schema; and
+- `SELECT` on future tables created by `object_owner`.
+
+If multiple roles create tables in the schema, repeat the `ALTER DEFAULT
+PRIVILEGES FOR ROLE ...` statement for each owner. PostgreSQL applies default
+privileges per object-creating role, not globally.
+
+Confirm that the Ratify login can connect and see the expected tables:
+
+```bash
+psql "postgresql://ratify_readonly@db.example.com:5432/myapp" \
+  --command "SELECT table_schema, table_name FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema NOT IN ('pg_catalog', 'information_schema');"
+```
+
+The password is requested interactively when it is not present in the URL.
+Avoid placing production passwords in shell history, source control, or the
+setup script after provisioning.
+
+Now register that user with Ratify:
+
 ```bash
 ratify connect add \
   --name "production-db" \
@@ -134,8 +184,9 @@ ratify connect add \
   --username ratify_readonly
 ```
 
-Ratify only requires `SELECT` on `information_schema` and `pg_catalog`.
-It **never writes** to your database.
+PostgreSQL exposes catalog metadata according to the user's privileges on the
+underlying objects. Ratify reads `information_schema` and `pg_catalog`; it
+**never writes** to your application database.
 
 ### Create your first contract
 
