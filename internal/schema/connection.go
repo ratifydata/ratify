@@ -8,18 +8,20 @@ import (
 	"time"
 )
 
-func EstablishConnection(driver, dns string) (*sql.DB, error) {
+func EstablishConnection(ctx context.Context, driver, dsn string) (*sql.DB, error) {
 	//Open returns a *DB struct validating the dns params passed.
-	db, err := sql.Open(driver, dns)
+	db, err := sql.Open(driver, dsn)
 	if err != nil {
 		slog.Error("Failed to open database connection")
 		return nil, err
 	}
 	//We run a PingContext  to verify if we can reach the external database within 10 seconds.
 	//PingContext preferred over Ping for a customized timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if err := db.PingContext(ctx); err != nil {
+	if err := db.PingContext(pingCtx); err != nil {
+		//Avoid leaking of the created db Connection
+		_ = db.Close()
 		slog.Error("Failed to ping database. A network issue or wrong dns configuration")
 		return nil, err
 	}

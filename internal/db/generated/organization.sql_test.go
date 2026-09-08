@@ -20,7 +20,7 @@ func TestQueries_CreateOrganization(t *testing.T) {
 		SmtpPasswordEncrypted: pgtype.Text{String: "encPassword"},
 		AutoApproveAdditive:   true,
 	}
-	queries := New(testDB.Pool)
+	queries := New(testDB.Internal.Pool)
 	org, err := queries.CreateOrganization(context.Background(), arg)
 
 	require.NoError(t, err)
@@ -30,7 +30,7 @@ func TestQueries_CreateOrganization(t *testing.T) {
 }
 
 func TestQueries_CreateOrganization_Error(t *testing.T) {
-	queries := New(testDB.Pool)
+	queries := New(testDB.Internal.Pool)
 	ctx := context.Background()
 	arg := CreateOrganizationParams{
 		Name: "Duplicate Organization",

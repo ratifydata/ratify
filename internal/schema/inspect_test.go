@@ -80,7 +80,7 @@ func (r *accessibleTableRows) Next(values []driver.Value) error {
 }
 
 func TestNewInspector(t *testing.T) {
-	queries := sqlc.New(testDB.Pool)
+	queries := sqlc.New(testDB.Internal.Pool)
 
 	inspector := NewInspector(queries, inspectionEncryptionKey)
 
@@ -97,7 +97,7 @@ func TestNewInspector(t *testing.T) {
 
 func TestSchemaInspection(t *testing.T) {
 	ctx := context.Background()
-	queries := sqlc.New(testDB.Pool)
+	queries := sqlc.New(testDB.Internal.Pool)
 	org, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
 		Name: "Schema Inspection Test",
 		Slug: "schema-inspection-test",
@@ -148,7 +148,7 @@ func TestSchemaInspection(t *testing.T) {
 
 func TestListDatabaseConnections(t *testing.T) {
 	ctx := context.Background()
-	queries := sqlc.New(testDB.Pool)
+	queries := sqlc.New(testDB.Internal.Pool)
 	org, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
 		Name: "List Connections Test",
 		Slug: "list-connections-test",
@@ -202,7 +202,7 @@ func TestListDatabaseConnections(t *testing.T) {
 
 func TestListDatabaseConnectionsEmpty(t *testing.T) {
 	ctx := context.Background()
-	queries := sqlc.New(testDB.Pool)
+	queries := sqlc.New(testDB.Internal.Pool)
 	org, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
 		Name: "Empty Connections Test",
 		Slug: "empty-connections-test",
@@ -225,7 +225,7 @@ func TestListDatabaseConnectionsEmpty(t *testing.T) {
 }
 
 func TestListDatabaseConnectionsMissingOrgID(t *testing.T) {
-	inspector := NewInspector(sqlc.New(testDB.Pool), inspectionEncryptionKey)
+	inspector := NewInspector(sqlc.New(testDB.Internal.Pool), inspectionEncryptionKey)
 
 	connections, err := inspector.ListDatabaseConnections(context.Background())
 	if err == nil {
@@ -241,7 +241,7 @@ func TestListDatabaseConnectionsMissingOrgID(t *testing.T) {
 
 func TestConnection(t *testing.T) {
 	ctx := context.Background()
-	queries := sqlc.New(testDB.Pool)
+	queries := sqlc.New(testDB.Internal.Pool)
 	params := testConnectionParams(t)
 	created := createStoredTestConnection(t, ctx, queries, params, inspectionEncryptionKey, "test-connection-success")
 
@@ -264,7 +264,7 @@ func TestConnection(t *testing.T) {
 
 func TestConnectionRecordsDecryptionFailure(t *testing.T) {
 	ctx := context.Background()
-	queries := sqlc.New(testDB.Pool)
+	queries := sqlc.New(testDB.Internal.Pool)
 	params := testConnectionParams(t)
 	created := createStoredTestConnection(t, ctx, queries, params, inspectionEncryptionKey, "test-connection-decryption-failure")
 
@@ -303,7 +303,7 @@ func TestConnectionRecordsDecryptionFailure(t *testing.T) {
 }
 
 func TestSchemaInspectionConnectionFailure(t *testing.T) {
-	inspector := NewInspector(sqlc.New(testDB.Pool), inspectionEncryptionKey)
+	inspector := NewInspector(sqlc.New(testDB.Internal.Pool), inspectionEncryptionKey)
 	params := ConnectionParams{DriverName: "unknown-inspection-test-driver"}
 
 	err := inspector.SchemaInspection(context.Background(), params)
@@ -316,7 +316,7 @@ func TestSchemaInspectionConnectionFailure(t *testing.T) {
 }
 
 func TestSchemaInspectionEncryptionFailure(t *testing.T) {
-	inspector := NewInspector(sqlc.New(testDB.Pool), "too-short")
+	inspector := NewInspector(sqlc.New(testDB.Internal.Pool), "too-short")
 
 	err := inspector.SchemaInspection(context.Background(), testConnectionParams(t))
 	if err == nil {
@@ -464,7 +464,7 @@ func TestEstablishRemoteConnectionValidationFailure(t *testing.T) {
 func testConnectionParams(t *testing.T) ConnectionParams {
 	t.Helper()
 
-	dsn, err := url.Parse(testDB.Pool.Config().ConnString())
+	dsn, err := url.Parse(testDB.Internal.Pool.Config().ConnString())
 	if err != nil {
 		t.Fatalf("parse test database connection string: %v", err)
 	}
