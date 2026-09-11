@@ -20,13 +20,12 @@ INSERT INTO database_connections (
     database_name,
     username,
     password_encrypted,
-    ssl_enabled,
     ssl_mode,
     status,
     nonce
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,$11
-) RETURNING id, org_id, display_name, host, port, database_name, username, password_encrypted, ssl_enabled, ssl_mode, status, last_tested_at, last_test_passed, created_at, updated_at, nonce
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+) RETURNING id, org_id, display_name, host, port, database_name, username, password_encrypted, ssl_mode, status, last_tested_at, last_test_passed, created_at, updated_at, nonce
 `
 
 type CreateDatabaseConnectionParams struct {
@@ -37,7 +36,6 @@ type CreateDatabaseConnectionParams struct {
 	DatabaseName      string
 	Username          string
 	PasswordEncrypted []byte
-	SslEnabled        bool
 	SslMode           string
 	Status            string
 	Nonce             []byte
@@ -52,7 +50,6 @@ func (q *Queries) CreateDatabaseConnection(ctx context.Context, arg CreateDataba
 		arg.DatabaseName,
 		arg.Username,
 		arg.PasswordEncrypted,
-		arg.SslEnabled,
 		arg.SslMode,
 		arg.Status,
 		arg.Nonce,
@@ -67,7 +64,6 @@ func (q *Queries) CreateDatabaseConnection(ctx context.Context, arg CreateDataba
 		&i.DatabaseName,
 		&i.Username,
 		&i.PasswordEncrypted,
-		&i.SslEnabled,
 		&i.SslMode,
 		&i.Status,
 		&i.LastTestedAt,
@@ -90,7 +86,7 @@ func (q *Queries) DeleteDatabaseConnection(ctx context.Context, id pgtype.UUID) 
 }
 
 const getDatabaseConnection = `-- name: GetDatabaseConnection :one
-SELECT id, org_id, display_name, host, port, database_name, username, password_encrypted, ssl_enabled, ssl_mode, status, last_tested_at, last_test_passed, created_at, updated_at, nonce FROM database_connections
+SELECT id, org_id, display_name, host, port, database_name, username, password_encrypted, ssl_mode, status, last_tested_at, last_test_passed, created_at, updated_at, nonce FROM database_connections
 WHERE id = $1
 `
 
@@ -106,7 +102,6 @@ func (q *Queries) GetDatabaseConnection(ctx context.Context, id pgtype.UUID) (Da
 		&i.DatabaseName,
 		&i.Username,
 		&i.PasswordEncrypted,
-		&i.SslEnabled,
 		&i.SslMode,
 		&i.Status,
 		&i.LastTestedAt,
@@ -119,7 +114,7 @@ func (q *Queries) GetDatabaseConnection(ctx context.Context, id pgtype.UUID) (Da
 }
 
 const listDatabaseConnectionsByOrg = `-- name: ListDatabaseConnectionsByOrg :many
-SELECT id,display_name,host,port,database_name,username,ssl_enabled,ssl_mode, status
+SELECT id,display_name,host,port,database_name,username,ssl_mode, status
 FROM database_connections
 WHERE org_id = $1
 ORDER BY display_name
@@ -132,7 +127,6 @@ type ListDatabaseConnectionsByOrgRow struct {
 	Port         int32
 	DatabaseName string
 	Username     string
-	SslEnabled   bool
 	SslMode      string
 	Status       string
 }
@@ -153,7 +147,6 @@ func (q *Queries) ListDatabaseConnectionsByOrg(ctx context.Context, orgID pgtype
 			&i.Port,
 			&i.DatabaseName,
 			&i.Username,
-			&i.SslEnabled,
 			&i.SslMode,
 			&i.Status,
 		); err != nil {
@@ -176,13 +169,12 @@ SET
     database_name = $5,
     username = $6,
     password_encrypted = $7,
-    ssl_enabled = $8,
-    ssl_mode = $9,
-    status = $10,
-    nonce = $11,
+    ssl_mode = $8,
+    status = $9,
+    nonce = $10,
     updated_at = NOW()
 WHERE id = $1
-RETURNING id, org_id, display_name, host, port, database_name, username, password_encrypted, ssl_enabled, ssl_mode, status, last_tested_at, last_test_passed, created_at, updated_at, nonce
+RETURNING id, org_id, display_name, host, port, database_name, username, password_encrypted, ssl_mode, status, last_tested_at, last_test_passed, created_at, updated_at, nonce
 `
 
 type UpdateDatabaseConnectionParams struct {
@@ -193,7 +185,6 @@ type UpdateDatabaseConnectionParams struct {
 	DatabaseName      string
 	Username          string
 	PasswordEncrypted []byte
-	SslEnabled        bool
 	SslMode           string
 	Status            string
 	Nonce             []byte
@@ -208,7 +199,6 @@ func (q *Queries) UpdateDatabaseConnection(ctx context.Context, arg UpdateDataba
 		arg.DatabaseName,
 		arg.Username,
 		arg.PasswordEncrypted,
-		arg.SslEnabled,
 		arg.SslMode,
 		arg.Status,
 		arg.Nonce,
@@ -223,7 +213,6 @@ func (q *Queries) UpdateDatabaseConnection(ctx context.Context, arg UpdateDataba
 		&i.DatabaseName,
 		&i.Username,
 		&i.PasswordEncrypted,
-		&i.SslEnabled,
 		&i.SslMode,
 		&i.Status,
 		&i.LastTestedAt,

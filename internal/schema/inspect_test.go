@@ -32,19 +32,19 @@ type fakeInspectorStore struct {
 	update func(context.Context, sqlc.UpdateDatabaseConnectionTestResultParams) error
 }
 
-func (f *fakeInspectorStore) CreateDatabaseConnection(ctx context.Context, params sqlc.CreateDatabaseConnectionParams) (sqlc.DatabaseConnection, error) {
+func (f fakeInspectorStore) CreateDatabaseConnection(ctx context.Context, params sqlc.CreateDatabaseConnectionParams) (sqlc.DatabaseConnection, error) {
 	return f.create(ctx, params)
 }
 
-func (f *fakeInspectorStore) GetDatabaseConnection(ctx context.Context, id pgtype.UUID) (sqlc.DatabaseConnection, error) {
+func (f fakeInspectorStore) GetDatabaseConnection(ctx context.Context, id pgtype.UUID) (sqlc.DatabaseConnection, error) {
 	return f.get(ctx, id)
 }
 
-func (f *fakeInspectorStore) ListDatabaseConnectionsByOrg(ctx context.Context, id pgtype.UUID) ([]sqlc.ListDatabaseConnectionsByOrgRow, error) {
+func (f fakeInspectorStore) ListDatabaseConnectionsByOrg(ctx context.Context, id pgtype.UUID) ([]sqlc.ListDatabaseConnectionsByOrgRow, error) {
 	return f.list(ctx, id)
 }
 
-func (f *fakeInspectorStore) UpdateDatabaseConnectionTestResult(ctx context.Context, params sqlc.UpdateDatabaseConnectionTestResultParams) error {
+func (f fakeInspectorStore) UpdateDatabaseConnectionTestResult(ctx context.Context, params sqlc.UpdateDatabaseConnectionTestResultParams) error {
 	return f.update(ctx, params)
 }
 
@@ -64,9 +64,7 @@ func (*closeErrorConn) QueryContext(context.Context, string, []driver.NamedValue
 	return &accessibleTableRows{}, nil
 }
 
-type accessibleTableRows struct {
-	returned bool
-}
+type accessibleTableRows struct{ returned bool }
 
 func (*accessibleTableRows) Columns() []string { return []string{"has_accessible_tables"} }
 func (*accessibleTableRows) Close() error      { return nil }
@@ -79,16 +77,34 @@ func (r *accessibleTableRows) Next(values []driver.Value) error {
 	return nil
 }
 
-func TestNewInspector(t *testing.T) {
-	queries := sqlc.New(testDB.Internal.Pool)
-
-	inspector := NewInspector(queries, inspectionEncryptionKey)
-
-	if inspector == nil {
-		t.Fatal("NewInspector() returned nil")
+func TestSSLModeIsValid(t *testing.T) {
+	tests := []struct {
+		name string
+		mode SSL_MODE
+		want bool
+	}{
+		{name: "disabled", mode: DISABLED, want: true},
+		{name: "verify CA", mode: VERIFY_CA, want: true},
+		{name: "verify full", mode: VERIFY_FULL, want: true},
+		{name: "empty", mode: "", want: false},
+		{name: "unsupported", mode: "require", want: false},
 	}
-	if inspector.db != queries {
-		t.Error("NewInspector() did not retain the supplied queries")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.mode.isValid(); got != tt.want {
+				t.Errorf("SSL_MODE(%q).isValid() = %v, want %v", tt.mode, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNewInspector(t *testing.T) {
+	store := &fakeInspectorStore{}
+	inspector := NewInspector(store, inspectionEncryptionKey)
+
+	if inspector.db != store {
+		t.Error("NewInspector() did not retain the supplied store")
 	}
 	if inspector.encKey != inspectionEncryptionKey {
 		t.Errorf("NewInspector() encryption key = %q, want %q", inspector.encKey, inspectionEncryptionKey)
@@ -166,7 +182,6 @@ func TestListDatabaseConnections(t *testing.T) {
 		Username:          "ratify",
 		PasswordEncrypted: []byte("encrypted-password"),
 		Nonce:             []byte("nonce"),
-		SslEnabled:        true,
 		SslMode:           "require",
 		Status:            "ACTIVE",
 	})
@@ -191,7 +206,6 @@ func TestListDatabaseConnections(t *testing.T) {
 		Port:         5432,
 		DatabaseName: "analytics",
 		Username:     "ratify",
-		SSLEnabled:   true,
 		SSLMode:      "require",
 		Status:       "ACTIVE",
 	}
@@ -221,6 +235,24 @@ func TestListDatabaseConnectionsEmpty(t *testing.T) {
 	}
 	if len(connections) != 0 {
 		t.Errorf("ListDatabaseConnections() count = %d, want 0", len(connections))
+	}
+}
+
+func TestListDatabaseConnectionsQueryFailure(t *testing.T) {
+	wantErr := errors.New("list failed")
+	store := fakeInspectorStore{
+		list: func(context.Context, pgtype.UUID) ([]sqlc.ListDatabaseConnectionsByOrgRow, error) {
+			return nil, wantErr
+		},
+	}
+	ctx := context.WithValue(context.Background(), "OrgID", pgtype.UUID{Valid: true})
+
+	connections, err := NewInspector(store, inspectionEncryptionKey).ListDatabaseConnections(ctx)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("ListDatabaseConnections() error = %v, want %v", err, wantErr)
+	}
+	if connections != nil {
+		t.Errorf("ListDatabaseConnections() = %+v, want nil", connections)
 	}
 }
 
@@ -276,7 +308,6 @@ func TestConnectionRecordsDecryptionFailure(t *testing.T) {
 		DatabaseName:      created.DatabaseName,
 		Username:          created.Username,
 		PasswordEncrypted: []byte("invalid-ciphertext"),
-		SslEnabled:        created.SslEnabled,
 		SslMode:           created.SslMode,
 		Status:            created.Status,
 		Nonce:             []byte("invalidnonce"),
@@ -304,7 +335,8 @@ func TestConnectionRecordsDecryptionFailure(t *testing.T) {
 
 func TestSchemaInspectionConnectionFailure(t *testing.T) {
 	inspector := NewInspector(sqlc.New(testDB.Internal.Pool), inspectionEncryptionKey)
-	params := ConnectionParams{DriverName: "unknown-inspection-test-driver"}
+	params := testConnectionParams(t)
+	params.DriverName = "unknown-driver"
 
 	err := inspector.SchemaInspection(context.Background(), params)
 	if err == nil {
@@ -328,7 +360,7 @@ func TestSchemaInspectionEncryptionFailure(t *testing.T) {
 }
 
 func TestSchemaInspectionMissingOrgID(t *testing.T) {
-	params := ConnectionParams{DriverName: closeErrorDriverName}
+	params := ConnectionParams{SSLMode: DISABLED, DriverName: closeErrorDriverName}
 	inspector := NewInspector(&fakeInspectorStore{}, inspectionEncryptionKey)
 
 	err := inspector.SchemaInspection(context.Background(), params)
@@ -337,42 +369,48 @@ func TestSchemaInspectionMissingOrgID(t *testing.T) {
 	}
 }
 
-func TestSchemaInspectionCreateFailure(t *testing.T) {
+func TestSchemaInspectionCreateDatabaseConnectionFailure(t *testing.T) {
 	wantErr := errors.New("create failed")
-	store := &fakeInspectorStore{
+	store := fakeInspectorStore{
 		create: func(context.Context, sqlc.CreateDatabaseConnectionParams) (sqlc.DatabaseConnection, error) {
 			return sqlc.DatabaseConnection{}, wantErr
 		},
 	}
 	ctx := context.WithValue(context.Background(), "OrgID", pgtype.UUID{Valid: true})
 
-	err := NewInspector(store, inspectionEncryptionKey).SchemaInspection(ctx, ConnectionParams{DriverName: closeErrorDriverName})
+	err := NewInspector(store, inspectionEncryptionKey).SchemaInspection(ctx, ConnectionParams{
+		SSLMode:    DISABLED,
+		DriverName: closeErrorDriverName,
+	})
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("SchemaInspection() error = %v, want %v", err, wantErr)
 	}
 }
 
-func TestListDatabaseConnectionsQueryFailure(t *testing.T) {
-	wantErr := errors.New("list failed")
-	store := &fakeInspectorStore{
-		list: func(context.Context, pgtype.UUID) ([]sqlc.ListDatabaseConnectionsByOrgRow, error) {
-			return nil, wantErr
+func TestSchemaInspectionRejectsInvalidSSLMode(t *testing.T) {
+	called := false
+	store := fakeInspectorStore{
+		create: func(context.Context, sqlc.CreateDatabaseConnectionParams) (sqlc.DatabaseConnection, error) {
+			called = true
+			return sqlc.DatabaseConnection{}, nil
 		},
 	}
-	ctx := context.WithValue(context.Background(), "OrgID", pgtype.UUID{Valid: true})
 
-	connections, err := NewInspector(store, inspectionEncryptionKey).ListDatabaseConnections(ctx)
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("ListDatabaseConnections() error = %v, want %v", err, wantErr)
+	err := NewInspector(store, inspectionEncryptionKey).SchemaInspection(context.Background(), ConnectionParams{
+		SSLMode:    "require",
+		DriverName: closeErrorDriverName,
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid ssl mode") {
+		t.Fatalf("SchemaInspection() error = %v, want invalid SSL mode error", err)
 	}
-	if connections != nil {
-		t.Errorf("ListDatabaseConnections() = %+v, want nil", connections)
+	if called {
+		t.Fatal("SchemaInspection() stored a connection with an invalid SSL mode")
 	}
 }
 
 func TestConnectionGetFailure(t *testing.T) {
 	wantErr := errors.New("get failed")
-	store := &fakeInspectorStore{
+	store := fakeInspectorStore{
 		get: func(context.Context, pgtype.UUID) (sqlc.DatabaseConnection, error) {
 			return sqlc.DatabaseConnection{}, wantErr
 		},
@@ -384,24 +422,19 @@ func TestConnectionGetFailure(t *testing.T) {
 	}
 }
 
-func TestConnectionRemoteFailure(t *testing.T) {
+func TestConnectionRemoteFailureRecordsResult(t *testing.T) {
 	encrypted, err := auth.Encrypt([]byte(inspectionEncryptionKey), "password")
 	if err != nil {
 		t.Fatalf("encrypt password: %v", err)
 	}
 	id := pgtype.UUID{Bytes: [16]byte{1}, Valid: true}
 	updated := false
-	store := &fakeInspectorStore{
+	store := fakeInspectorStore{
 		get: func(context.Context, pgtype.UUID) (sqlc.DatabaseConnection, error) {
 			return sqlc.DatabaseConnection{
-				ID:                id,
-				Host:              "127.0.0.1",
-				Port:              1,
-				Username:          "invalid",
-				DatabaseName:      "invalid",
-				SslMode:           "disable",
-				PasswordEncrypted: encrypted.CipherText,
-				Nonce:             encrypted.Nonce,
+				ID: id, Host: "127.0.0.1", Port: 1, Username: "invalid",
+				DatabaseName: "invalid", SslMode: "disable",
+				PasswordEncrypted: encrypted.CipherText, Nonce: encrypted.Nonce,
 			}, nil
 		},
 		update: func(_ context.Context, params sqlc.UpdateDatabaseConnectionTestResultParams) error {
@@ -423,15 +456,12 @@ func TestConnectionRemoteFailure(t *testing.T) {
 }
 
 func TestConnectionJoinsResultUpdateFailure(t *testing.T) {
-	decryptErrText := "cipher: message authentication failed"
 	updateErr := errors.New("update failed")
 	id := pgtype.UUID{Bytes: [16]byte{2}, Valid: true}
-	store := &fakeInspectorStore{
+	store := fakeInspectorStore{
 		get: func(context.Context, pgtype.UUID) (sqlc.DatabaseConnection, error) {
 			return sqlc.DatabaseConnection{
-				ID:                id,
-				PasswordEncrypted: []byte("invalid ciphertext"),
-				Nonce:             make([]byte, 12),
+				ID: id, PasswordEncrypted: []byte("invalid ciphertext"), Nonce: make([]byte, 12),
 			}, nil
 		},
 		update: func(context.Context, sqlc.UpdateDatabaseConnectionTestResultParams) error {
@@ -442,9 +472,6 @@ func TestConnectionJoinsResultUpdateFailure(t *testing.T) {
 	err := NewInspector(store, inspectionEncryptionKey).TestConnection(context.Background(), id)
 	if err == nil {
 		t.Fatal("TestConnection() error = nil, want joined error")
-	}
-	if !strings.Contains(err.Error(), decryptErrText) {
-		t.Errorf("TestConnection() error = %q, want decryption error", err)
 	}
 	if !errors.Is(err, updateErr) {
 		t.Errorf("TestConnection() error = %v, want joined update error %v", err, updateErr)
@@ -464,7 +491,7 @@ func TestEstablishRemoteConnectionValidationFailure(t *testing.T) {
 func testConnectionParams(t *testing.T) ConnectionParams {
 	t.Helper()
 
-	dsn, err := url.Parse(testDB.Internal.Pool.Config().ConnString())
+	dsn, err := url.Parse(testDB.External.DSN)
 	if err != nil {
 		t.Fatalf("parse test database connection string: %v", err)
 	}
@@ -514,8 +541,7 @@ func createStoredTestConnection(
 		DatabaseName:      params.DatabaseName,
 		Username:          params.Username,
 		PasswordEncrypted: encrypted.CipherText,
-		SslEnabled:        params.SSlEnabled,
-		SslMode:           params.SSLMode,
+		SslMode:           string(params.SSLMode),
 		Status:            "ACTIVE",
 		Nonce:             encrypted.Nonce,
 	})

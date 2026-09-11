@@ -17,14 +17,14 @@ import (
 )
 
 type ConnectionParams struct {
-	Host         string `json:"host"`
-	Port         int    `json:"port"`
-	Username     string `json:"username"`
-	Password     string `json:"password"`
-	DatabaseName string `json:"database_name"`
-	SSLMode      string `json:"ssl_mode"`
-	SSlEnabled   bool   `json:"ssl_enabled"`
-	DriverName   string `json:"driver_name"`
+	Host         string   `json:"host"`
+	Port         int      `json:"port"`
+	Username     string   `json:"username"`
+	Password     string   `json:"password"`
+	DatabaseName string   `json:"database_name"`
+	SSLMode      SSL_MODE `json:"ssl_mode"`
+	SSlEnabled   bool     `json:"ssl_enabled"`
+	DriverName   string   `json:"driver_name"`
 }
 type StoredConnection struct {
 	ID           pgtype.UUID `json:"id"`
@@ -33,7 +33,6 @@ type StoredConnection struct {
 	Port         int32       `json:"port"`
 	DatabaseName string      `json:"database_name"`
 	Username     string      `json:"username"`
-	SSLEnabled   bool        `json:"ssl_enabled"`
 	SSLMode      string      `json:"ssl_mode"`
 	Status       string      `json:"status"`
 }
@@ -41,10 +40,19 @@ type StoredConnection struct {
 type SSL_MODE string
 
 const (
-	DISABLED    SSL_MODE = "disabled"
+	DISABLED    SSL_MODE = "disable"
 	VERIFY_CA   SSL_MODE = "verify-ca"
 	VERIFY_FULL SSL_MODE = "verify-full"
 )
+
+func (s SSL_MODE) isValid() bool {
+	switch s {
+	case DISABLED, VERIFY_CA, VERIFY_FULL:
+		return true
+	}
+	return false
+
+}
 
 type inspectorStore interface {
 	CreateDatabaseConnection(context.Context, sqlc.CreateDatabaseConnectionParams) (sqlc.DatabaseConnection, error)
@@ -63,6 +71,11 @@ func NewInspector(db inspectorStore, encKey string) *Inspector {
 }
 
 func (i *Inspector) SchemaInspection(ctx context.Context, params ConnectionParams) error {
+
+	if !params.SSLMode.isValid() {
+		slog.Error("Wrong SSL_Mode parameters passed to SchemaInspection")
+		return errors.New("invalid ssl mode")
+	}
 
 	err := establishRemoteConnection(ctx, params)
 	if err != nil {
@@ -93,8 +106,7 @@ func (i *Inspector) SchemaInspection(ctx context.Context, params ConnectionParam
 		PasswordEncrypted: enc.CipherText,
 		Nonce:             enc.Nonce,
 		OrgID:             orgId,
-		SslMode:           params.SSLMode,
-		SslEnabled:        params.SSlEnabled,
+		SslMode:           string(params.SSLMode),
 		Status:            "ACTIVE",
 	}
 
@@ -130,7 +142,6 @@ func (i *Inspector) ListDatabaseConnections(ctx context.Context) ([]StoredConnec
 			Port:         dbConn.Port,
 			DatabaseName: dbConn.DatabaseName,
 			Username:     dbConn.Username,
-			SSLEnabled:   dbConn.SslEnabled,
 			SSLMode:      dbConn.SslMode,
 			Status:       dbConn.Status,
 		})
@@ -150,7 +161,7 @@ func (i *Inspector) TestConnection(ctx context.Context, id pgtype.UUID) (retErr 
 	// Use a short-lived context independent of the request cancellation so a timeout
 	// in the remote test does not prevent recording the failed result.
 	defer func() {
-		updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 
 		if err := i.updateConnectionTestResult(updateCtx, retErr == nil, dbConn.ID); err != nil {
@@ -170,8 +181,7 @@ func (i *Inspector) TestConnection(ctx context.Context, id pgtype.UUID) (retErr 
 		Username:     dbConn.Username,
 		Password:     decryptedPass,
 		DatabaseName: dbConn.DatabaseName,
-		SSLMode:      dbConn.SslMode,
-		SSlEnabled:   dbConn.SslEnabled,
+		SSLMode:      SSL_MODE(dbConn.SslMode),
 		DriverName:   "pgx",
 	}
 
@@ -208,11 +218,12 @@ func establishRemoteConnection(ctx context.Context, params ConnectionParams) err
 		Path:   params.DatabaseName,
 	}
 	q := u.Query()
-	q.Set("sslmode", params.SSLMode)
+	q.Set("sslmode", string(params.SSLMode))
 	u.RawQuery = q.Encode()
 
 	db, err := EstablishConnection(ctx, params.DriverName, u.String())
 	if err != nil {
+		fmt.Printf("Error establishing database connection: %v", err)
 		slog.Error("error establishing connection to driver")
 		return err
 	}

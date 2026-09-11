@@ -123,7 +123,6 @@ type DatabaseConnection struct {
 	DatabaseName      string
 	Username          string
 	PasswordEncrypted []byte
-	SslEnabled        bool
 	SslMode           string
 	Status            string
 	LastTestedAt      pgtype.Timestamptz

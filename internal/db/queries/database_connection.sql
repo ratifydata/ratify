@@ -7,12 +7,11 @@ INSERT INTO database_connections (
     database_name,
     username,
     password_encrypted,
-    ssl_enabled,
     ssl_mode,
     status,
     nonce
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,$11
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
 ) RETURNING *;
 
 -- name: GetDatabaseConnection :one
@@ -20,7 +19,7 @@ SELECT * FROM database_connections
 WHERE id = $1;
 
 -- name: ListDatabaseConnectionsByOrg :many
-SELECT id,display_name,host,port,database_name,username,ssl_enabled,ssl_mode, status
+SELECT id,display_name,host,port,database_name,username,ssl_mode, status
 FROM database_connections
 WHERE org_id = $1
 ORDER BY display_name;
@@ -34,10 +33,9 @@ SET
     database_name = $5,
     username = $6,
     password_encrypted = $7,
-    ssl_enabled = $8,
-    ssl_mode = $9,
-    status = $10,
-    nonce = $11,
+    ssl_mode = $8,
+    status = $9,
+    nonce = $10,
     updated_at = NOW()
 WHERE id = $1
 RETURNING *;
