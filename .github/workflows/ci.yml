@@ -24,9 +24,9 @@ concurrency:
 # Define versions once here. When upgrading Go or Node, change
 # the value here and it applies to every job automatically.
 env:
-  GO_VERSION: '1.26.0'
+  GO_VERSION: '1.26.8'
   NODE_VERSION: '20'
-  GOLANGCI_LINT_VERSION: 'v2.4.0'
+  GOLANGCI_LINT_VERSION: 'v2.11.4'
   MIGRATE_VERSION: 'v4.17.0'
   COVERAGE_THRESHOLD: '0'
 
@@ -266,7 +266,7 @@ jobs:
       # confirm are real (by attempting to use them) — this
       # reduces false positives significantly.
       - name: Scan for committed secrets
-        uses: trufflesecurity/trufflehog@v3.97.0
+        uses: trufflesecurity/trufflehog@v3.97.1
         with:
           path: ./
           base: ${{ github.event.pull_request.base.sha || github.event.before }}
