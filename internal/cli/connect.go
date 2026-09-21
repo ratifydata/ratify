@@ -58,14 +58,11 @@ func (connectCmd *ConnectCmd) Connect() *cobra.Command {
 }
 
 func (connectCmd *ConnectCmd) ListConnections() *cobra.Command {
-	var output string
+	output := "table"
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List saved database connections",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if output != "table" && output != "json" {
-				return fmt.Errorf("unsupported output format %q: use table or json", output)
-			}
 			storedConnections, err := connectCmd.inspector.ListDatabaseConnections(cmd.Context())
 			if err != nil {
 				return err
@@ -79,11 +76,11 @@ func (connectCmd *ConnectCmd) ListConnections() *cobra.Command {
 				return encoder.Encode(storedConnections)
 			}
 			if len(storedConnections) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No saved connections.")
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No saved connections.")
 				return nil
 			}
 			for _, connection := range storedConnections {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s:%d/%s\t%s\n",
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s:%d/%s\t%s\n",
 					connection.ID.String(), connection.DisplayName, connection.Host,
 					connection.Port, connection.DatabaseName, connection.Status)
 			}
@@ -102,17 +99,17 @@ func (connectCmd *ConnectCmd) TestConnectionCmd() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			var connectionID pgtype.UUID
 			if err := connectionID.Scan(args[0]); err != nil {
-				fmt.Fprintln(cmd.OutOrStdout(), "failure")
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "failure")
 				return
 			}
 
 			err := connectCmd.inspector.TestConnection(cmd.Context(), connectionID)
 
 			if err != nil {
-				fmt.Fprintln(cmd.OutOrStdout(), "failure")
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "failure")
 				return
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "success")
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "success")
 			return
 		},
 	}
