@@ -2,7 +2,7 @@ package cli
 
 import (
 	"bufio"
-	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -26,15 +26,8 @@ type ConnectionDetails struct {
 	SSLMode      string
 }
 
-type connectionInspector interface {
-	ListDatabaseConnections(context.Context) ([]schema.StoredConnection, error)
-	TestConnection(context.Context, pgtype.UUID) error
-	SchemaInspection(context.Context, schema.ConnectionParams) error
-}
-
 type ConnectCmd struct {
-	inspector     connectionInspector
-	promptDetails func() (*ConnectionDetails, error)
+	inspector *schema.Inspector
 }
 
 var orgID string
@@ -60,24 +53,30 @@ func (connectCmd *ConnectCmd) Connect() *cobra.Command {
 	mainCommand.AddCommand(connectCmd.TestConnectionCmd())
 	mainCommand.AddCommand(connectCmd.ListConnections())
 	mainCommand.AddCommand(connectCmd.AddConnectionCmd())
-	mainCommand.PersistentFlags().StringVar(&orgID, "org-id", "", "Ratify organization UUID")
-	_ = mainCommand.MarkPersistentFlagRequired("org-id")
 	return mainCommand
 
 }
 
 func (connectCmd *ConnectCmd) ListConnections() *cobra.Command {
-	return &cobra.Command{
+	var output string
+	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List saved database connections",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx, err := connectionContext(cmd)
+			if output != "table" && output != "json" {
+				return fmt.Errorf("unsupported output format %q: use table or json", output)
+			}
+			storedConnections, err := connectCmd.inspector.ListDatabaseConnections(cmd.Context())
 			if err != nil {
 				return err
 			}
-			storedConnections, err := connectCmd.inspector.ListDatabaseConnections(ctx)
-			if err != nil {
-				return err
+			if output == "json" {
+				if storedConnections == nil {
+					storedConnections = []schema.StoredConnection{}
+				}
+				encoder := json.NewEncoder(cmd.OutOrStdout())
+				encoder.SetIndent("", "  ")
+				return encoder.Encode(storedConnections)
 			}
 			if len(storedConnections) == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "No saved connections.")
@@ -91,6 +90,8 @@ func (connectCmd *ConnectCmd) ListConnections() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&output, "output", "table", "Output format: table or json")
+	return cmd
 }
 
 func (connectCmd *ConnectCmd) TestConnectionCmd() *cobra.Command {
@@ -98,19 +99,21 @@ func (connectCmd *ConnectCmd) TestConnectionCmd() *cobra.Command {
 		Use:   "test <connection-id>",
 		Short: "Test a saved database connection",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Run: func(cmd *cobra.Command, args []string) {
 			var connectionID pgtype.UUID
 			if err := connectionID.Scan(args[0]); err != nil {
-				return fmt.Errorf("invalid connection ID: %w", err)
+				fmt.Fprintln(cmd.OutOrStdout(), "failure")
+				return
 			}
 
 			err := connectCmd.inspector.TestConnection(cmd.Context(), connectionID)
 
 			if err != nil {
-				return err
+				fmt.Fprintln(cmd.OutOrStdout(), "failure")
+				return
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "Connection test passed.")
-			return nil
+			fmt.Fprintln(cmd.OutOrStdout(), "success")
+			return
 		},
 	}
 }
@@ -121,15 +124,8 @@ func (connectCmd *ConnectCmd) AddConnectionCmd() *cobra.Command {
 		Short: "Add a new external database to ratify",
 		Long:  "Add a new external database to ratify",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx, err := connectionContext(cmd)
-			if err != nil {
-				return err
-			}
-			promptDetails := connectCmd.promptDetails
-			if promptDetails == nil {
-				promptDetails = promptConnectionDetails
-			}
-			connDetails, err := promptDetails()
+
+			connDetails, err := promptConnectionDetails()
 			if err != nil {
 				return err
 			}
@@ -140,7 +136,7 @@ func (connectCmd *ConnectCmd) AddConnectionCmd() *cobra.Command {
 				return err
 			}
 
-			err = connectCmd.inspector.SchemaInspection(ctx, schema.ConnectionParams{
+			err = connectCmd.inspector.SchemaInspection(cmd.Context(), schema.ConnectionParams{
 				Host:         connDetails.Host,
 				Port:         port,
 				Username:     connDetails.Username,
@@ -157,22 +153,6 @@ func (connectCmd *ConnectCmd) AddConnectionCmd() *cobra.Command {
 			return nil
 		},
 	}
-}
-
-// connectionContext supplies the organization expected by the schema inspector.
-func connectionContext(cmd *cobra.Command) (context.Context, error) {
-	value, err := cmd.Flags().GetString("org-id")
-	if err != nil {
-		return nil, err
-	}
-	if value == "" {
-		return nil, fmt.Errorf("organization ID is required")
-	}
-	var id pgtype.UUID
-	if err := id.Scan(value); err != nil {
-		return nil, fmt.Errorf("invalid organization ID: %w", err)
-	}
-	return context.WithValue(cmd.Context(), "OrgID", id), nil
 }
 
 func promptConnectionDetails() (*ConnectionDetails, error) {
@@ -211,14 +191,14 @@ func promptConnectionDetails() (*ConnectionDetails, error) {
 	passBytes, err := term.ReadPassword(syscall.Stdin)
 	fmt.Println()
 	if err != nil {
-		return nil, fmt.Errorf("read password: %w", err)
+		return nil, fmt.Errorf("error reading password")
 	}
 
 	fmt.Println("Confirm Password: ")
 	confirmPass, err := term.ReadPassword(syscall.Stdin)
 	fmt.Println()
 	if err != nil {
-		return nil, fmt.Errorf("read password: %w", err)
+		return nil, fmt.Errorf("error reading password")
 	}
 
 	if string(passBytes) != string(confirmPass) {

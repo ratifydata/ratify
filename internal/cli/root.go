@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -11,7 +12,8 @@ import (
 )
 
 func Execute(cfg *config.Config, pool *pgxpool.Pool) {
-	if err := newRootCmd(cfg, pool).Execute(); err != nil {
+	ctx := context.Background()
+	if err := newRootCmd(cfg, pool).ExecuteContext(ctx); err != nil {
 		os.Exit(1)
 	}
 }
