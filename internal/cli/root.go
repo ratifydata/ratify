@@ -28,7 +28,7 @@ func newRootCmd(cfg *config.Config, pool *pgxpool.Pool) *cobra.Command {
 		Short: "A data contract workflow engine",
 		Long:  `A command line tool for data contract workflow engine`,
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Fprintln(cmd.OutOrStdout(), "Welcome to ratify, A data contract workflow engine")
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Welcome to ratify, A data contract workflow engine")
 		},
 	}
 	rootCmd.AddCommand(connectionCmd.Connect())
