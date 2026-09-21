@@ -4,21 +4,32 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/ratifydata/ratify/internal/config"
+	sqlc "github.com/ratifydata/ratify/internal/db/generated"
 	"github.com/spf13/cobra"
 )
 
-func Execute() {
-	err := rootCmd.Execute()
-	if err != nil {
+func Execute(cfg *config.Config, pool *pgxpool.Pool) {
+	if err := newRootCmd(cfg, pool).Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
-var rootCmd = &cobra.Command{
-	Use:   "ratify",
-	Short: "A data contract workflow engine",
-	Long:  `A command line tool for data contract workflow engine`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Welcome to ratify, A data contract workflow engine")
-	},
+func newRootCmd(cfg *config.Config, pool *pgxpool.Pool) *cobra.Command {
+
+	db := sqlc.New(pool)
+	connectionCmd := NewConnectCmd(db, cfg.EncryptionKey)
+
+	rootCmd := &cobra.Command{
+		Use:   "ratify",
+		Short: "A data contract workflow engine",
+		Long:  `A command line tool for data contract workflow engine`,
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Fprintln(cmd.OutOrStdout(), "Welcome to ratify, A data contract workflow engine")
+		},
+	}
+	rootCmd.AddCommand(connectionCmd.Connect())
+	rootCmd.AddCommand(authCmd)
+	return rootCmd
 }
