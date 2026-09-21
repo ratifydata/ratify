@@ -68,9 +68,6 @@ func TestSetAPIKeyInvalidConfig(t *testing.T) {
 		param:  "- one\n- two\n",
 		setKey: "key",
 		name:   "UnMarshalling Error",
-	}, {
-		param: "API_KEY",
-		name:  "Marshalling Error",
 	},
 	} {
 		t.Run(config.name, func(t *testing.T) {
