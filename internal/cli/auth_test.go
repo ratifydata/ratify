@@ -1,20 +1,7 @@
-// Copyright (C) 2026 Ratify Data
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published
-// by the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
 package cli
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -67,6 +54,13 @@ func TestSetAPIKey(t *testing.T) {
 	}
 }
 
+func TestSetAPIKeyMissingConfig(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := setApiKey("key"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("setApiKey() error = %v, want file not found", err)
+	}
+}
+
 func TestSetAPIKeyInvalidConfig(t *testing.T) {
 	for _, config := range []struct {
 		param, setKey, name string
@@ -74,6 +68,9 @@ func TestSetAPIKeyInvalidConfig(t *testing.T) {
 		param:  "- one\n- two\n",
 		setKey: "key",
 		name:   "UnMarshalling Error",
+	}, {
+		param: "API_KEY",
+		name:  "Marshalling Error",
 	},
 	} {
 		t.Run(config.name, func(t *testing.T) {
@@ -83,4 +80,8 @@ func TestSetAPIKeyInvalidConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSetAoiKeyMarshallingErr(t *testing.T) {
+
 }
