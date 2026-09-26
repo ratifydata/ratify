@@ -185,12 +185,13 @@ type ProposalChange struct {
 }
 
 type Team struct {
-	ID          pgtype.UUID
-	OrgID       pgtype.UUID
-	Name        string
-	Description pgtype.Text
-	CreatedAt   pgtype.Timestamptz
-	UpdatedAt   pgtype.Timestamptz
+	ID           pgtype.UUID
+	OrgID        pgtype.UUID
+	Name         string
+	Description  pgtype.Text
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+	EmailAddress string
 }
 
 type TeamMember struct {

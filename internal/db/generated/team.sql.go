@@ -15,20 +15,27 @@ const createTeam = `-- name: CreateTeam :one
 INSERT INTO teams (
     org_id,
     name,
-    description
+    description,
+    email_address
 ) VALUES (
-    $1, $2, $3
-) RETURNING id, org_id, name, description, created_at, updated_at
+    $1, $2, $3,$4
+) RETURNING id, org_id, name, description, created_at, updated_at, email_address
 `
 
 type CreateTeamParams struct {
-	OrgID       pgtype.UUID
-	Name        string
-	Description pgtype.Text
+	OrgID        pgtype.UUID
+	Name         string
+	Description  pgtype.Text
+	EmailAddress string
 }
 
 func (q *Queries) CreateTeam(ctx context.Context, arg CreateTeamParams) (Team, error) {
-	row := q.db.QueryRow(ctx, createTeam, arg.OrgID, arg.Name, arg.Description)
+	row := q.db.QueryRow(ctx, createTeam,
+		arg.OrgID,
+		arg.Name,
+		arg.Description,
+		arg.EmailAddress,
+	)
 	var i Team
 	err := row.Scan(
 		&i.ID,
@@ -37,6 +44,7 @@ func (q *Queries) CreateTeam(ctx context.Context, arg CreateTeamParams) (Team, e
 		&i.Description,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EmailAddress,
 	)
 	return i, err
 }
@@ -52,7 +60,7 @@ func (q *Queries) DeleteTeam(ctx context.Context, id pgtype.UUID) error {
 }
 
 const getTeam = `-- name: GetTeam :one
-SELECT id, org_id, name, description, created_at, updated_at FROM teams
+SELECT id, org_id, name, description, created_at, updated_at, email_address FROM teams
 WHERE id = $1
 `
 
@@ -66,6 +74,7 @@ func (q *Queries) GetTeam(ctx context.Context, id pgtype.UUID) (Team, error) {
 		&i.Description,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EmailAddress,
 	)
 	return i, err
 }
@@ -91,7 +100,7 @@ func (q *Queries) GetTeamByName(ctx context.Context, arg GetTeamByNameParams) (b
 }
 
 const listTeamsByOrg = `-- name: ListTeamsByOrg :many
-SELECT id, org_id, name, description, created_at, updated_at FROM teams
+SELECT id, org_id, name, description, created_at, updated_at, email_address FROM teams
 WHERE org_id = $1
 ORDER BY name
 `
@@ -112,6 +121,7 @@ func (q *Queries) ListTeamsByOrg(ctx context.Context, orgID pgtype.UUID) ([]Team
 			&i.Description,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.EmailAddress,
 		); err != nil {
 			return nil, err
 		}
@@ -130,7 +140,7 @@ SET
     description = $3,
     updated_at = NOW()
 WHERE id = $1
-RETURNING id, org_id, name, description, created_at, updated_at
+RETURNING id, org_id, name, description, created_at, updated_at, email_address
 `
 
 type UpdateTeamParams struct {
@@ -149,6 +159,7 @@ func (q *Queries) UpdateTeam(ctx context.Context, arg UpdateTeamParams) (Team, e
 		&i.Description,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EmailAddress,
 	)
 	return i, err
 }

@@ -2,9 +2,10 @@
 INSERT INTO teams (
     org_id,
     name,
-    description
+    description,
+    email_address
 ) VALUES (
-    $1, $2, $3
+    $1, $2, $3,$4
 ) RETURNING *;
 
 -- name: GetTeam :one

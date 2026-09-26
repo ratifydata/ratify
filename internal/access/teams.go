@@ -11,14 +11,16 @@ import (
 )
 
 type TeamParams struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	Name         string `json:"name" required:"true"`
+	Description  string `json:"description"`
+	EmailAddress string `json:"email_address" required:"true"`
 }
 
 type OrgTeam struct {
-	ID          pgtype.UUID `json:"id"`
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
+	ID           pgtype.UUID `json:"id"`
+	Name         string      `json:"name"`
+	Description  string      `json:"description"`
+	EmailAddress string      `json:"email_address"`
 }
 
 type Team struct {
@@ -49,8 +51,9 @@ func (t *Team) CreateTeam(ctx context.Context, args TeamParams) (*OrgTeam, error
 	}
 
 	team, err := t.db.CreateTeam(ctx, sqlc.CreateTeamParams{
-		Name:  formatString(args.Name),
-		OrgID: orgID,
+		Name:         formatString(args.Name),
+		OrgID:        orgID,
+		EmailAddress: args.EmailAddress,
 		Description: pgtype.Text{
 			String: args.Description,
 			Valid:  true,
@@ -101,9 +104,10 @@ func (t *Team) ListTeams(ctx context.Context) ([]OrgTeam, error) {
 	allTeams := make([]OrgTeam, 0, len(teams))
 	for _, team := range teams {
 		allTeams = append(allTeams, OrgTeam{
-			ID:          team.ID,
-			Name:        team.Name,
-			Description: team.Description.String,
+			ID:           team.ID,
+			Name:         team.Name,
+			Description:  team.Description.String,
+			EmailAddress: team.EmailAddress,
 		})
 	}
 
