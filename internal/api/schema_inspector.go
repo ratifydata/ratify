@@ -23,8 +23,9 @@ type connectionTester interface {
 }
 
 type Response struct {
-	Status  string `json:"status"`
-	Message string `json:"message,omitempty"`
+	Status  string      `json:"status"`
+	Message string      `json:"message,omitempty"`
+	Body    interface{} `json:"body,omitempty"`
 }
 
 func schemaConnectionHandler(inspector inspectionValidator) http.HandlerFunc {
