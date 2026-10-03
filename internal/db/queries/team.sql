@@ -10,7 +10,7 @@ INSERT INTO teams (
 
 -- name: GetTeam :one
 SELECT * FROM teams
-WHERE id = $1;
+WHERE id = $1 AND org_id = $2;
 
 -- name: GetTeamByName :one
 SELECT EXISTS (

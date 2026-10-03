@@ -195,10 +195,11 @@ type Team struct {
 }
 
 type TeamMember struct {
-	TeamID   pgtype.UUID
-	UserID   pgtype.UUID
-	Role     string
-	JoinedAt pgtype.Timestamptz
+	TeamID    pgtype.UUID
+	UserID    pgtype.UUID
+	Role      string
+	JoinedAt  pgtype.Timestamptz
+	DeletedAt pgtype.Timestamptz
 }
 
 type User struct {

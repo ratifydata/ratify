@@ -12,6 +12,18 @@ INSERT INTO users (
 SELECT * FROM users
 WHERE id = $1;
 
+
+-- name: CheckUserExistByEmail :one
+SELECT EXISTS (
+    SELECT 1
+    FROM users
+    WHERE email = $1
+);
+
+-- name: FetchUserByEmail :one
+SELECT * FROM users
+WHERE email = $1;
+
 -- name: ListUsersByOrg :many
 SELECT * FROM users
 WHERE org_id = $1

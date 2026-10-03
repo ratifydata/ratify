@@ -78,7 +78,7 @@ func (t *Team) GetTeam(ctx context.Context, teamId pgtype.UUID) (*OrgTeam, error
 		return nil, fmt.Errorf("OrgID missing from context")
 	}
 
-	team, err := t.db.GetTeam(ctx, teamId)
+	team, err := t.db.GetTeam(ctx, sqlc.GetTeamParams{ID: teamId, OrgID: orgID})
 	if err != nil {
 		return nil, err
 	}

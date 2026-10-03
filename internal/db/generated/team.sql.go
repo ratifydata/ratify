@@ -61,11 +61,16 @@ func (q *Queries) DeleteTeam(ctx context.Context, id pgtype.UUID) error {
 
 const getTeam = `-- name: GetTeam :one
 SELECT id, org_id, name, description, created_at, updated_at, email_address FROM teams
-WHERE id = $1
+WHERE id = $1 AND org_id = $2
 `
 
-func (q *Queries) GetTeam(ctx context.Context, id pgtype.UUID) (Team, error) {
-	row := q.db.QueryRow(ctx, getTeam, id)
+type GetTeamParams struct {
+	ID    pgtype.UUID
+	OrgID pgtype.UUID
+}
+
+func (q *Queries) GetTeam(ctx context.Context, arg GetTeamParams) (Team, error) {
+	row := q.db.QueryRow(ctx, getTeam, arg.ID, arg.OrgID)
 	var i Team
 	err := row.Scan(
 		&i.ID,
