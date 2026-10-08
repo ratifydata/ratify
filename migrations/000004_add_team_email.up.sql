@@ -1,7 +1,7 @@
 -- =============================================================================
--- Migration 000003: Reversal
+-- Migration 000004: Adds email_address to table teams
 -- =============================================================================
--- Drops database_connection in 000003_add_nonce_schema.up.sql.
+-- Add column email_address  in 000004_add_team_email_schema.up.sql.
 -- =============================================================================
 
 ALTER TABLE IF EXISTS teams ADD COLUMN email_address VARCHAR NOT NULL;

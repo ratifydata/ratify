@@ -7,17 +7,12 @@ import (
 	"net/mail"
 	"strings"
 
+	"github.com/ratifydata/ratify/internal/apperrors"
+
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
 	"github.com/ratifydata/ratify/internal/util"
-)
-
-var (
-	ErrMemberEmail        = errors.New("valid email is required")
-	ErrMemberExists       = errors.New("team member already exists")
-	ErrMemberNotFound     = errors.New("team member not found")
-	ErrTeamNotFound       = errors.New("team not found")
-	ErrMemberOrganization = errors.New("OrgID missing from context")
 )
 
 type MemberParams struct {
@@ -46,13 +41,16 @@ func NewMember(db *sqlc.Queries) *Member {
 func (m *Member) AddTeamMember(ctx context.Context, teamID pgtype.UUID, params MemberParams) (*TeamMember, error) {
 	orgId, err := util.ValidateOrgId(ctx)
 	if err != nil {
+		return nil, &apperrors.BadRequestError{Err: err}
+	}
+	if _, err := NewTeam(m.db).GetTeam(ctx, teamID); err != nil {
 		return nil, err
 	}
 	email := strings.TrimSpace(params.Email)
 	parsed, err := mail.ParseAddress(email)
 	if err != nil || parsed.Address != email {
 		slog.Error("failed to parse email address")
-		return nil, ErrMemberEmail
+		return nil, &apperrors.BadRequestError{Err: errors.New("valid email is required")}
 	}
 
 	user, err := m.user.GetUserViaMembership(ctx, orgId, UserParams{
@@ -72,7 +70,7 @@ func (m *Member) AddTeamMember(ctx context.Context, teamID pgtype.UUID, params M
 		return nil, err
 	}
 	if teamMemberExist {
-		return nil, ErrMemberExists
+		return nil, &apperrors.ConflictError{Err: errors.New("team member already exists")}
 	}
 	//Link team member after passing all checks
 	teamMember, err := m.db.CreateTeamMember(ctx, sqlc.CreateTeamMemberParams{
@@ -92,23 +90,24 @@ func (m *Member) AddTeamMember(ctx context.Context, teamID pgtype.UUID, params M
 }
 
 func (m *Member) RemoveTeamMember(ctx context.Context, teamID, userID pgtype.UUID) error {
-	_, err := util.ValidateOrgId(ctx)
-	if err != nil {
-		return nil
+	if _, err := NewTeam(m.db).GetTeam(ctx, teamID); err != nil {
+		return err
 	}
-	_, err = m.db.RemoveTeamMember(ctx, sqlc.RemoveTeamMemberParams{
+	_, err := m.db.RemoveTeamMember(ctx, sqlc.RemoveTeamMemberParams{
 		TeamID: teamID,
 		UserID: userID,
 	})
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return &apperrors.NotFoundError{Err: errors.New("team member not found")}
+		}
 		return err
 	}
 	return nil
 }
 
 func (m *Member) ListTeamMembers(ctx context.Context, teamID pgtype.UUID) ([]TeamMember, error) {
-	_, err := util.ValidateOrgId(ctx)
-	if err != nil {
+	if _, err := NewTeam(m.db).GetTeam(ctx, teamID); err != nil {
 		return nil, err
 	}
 

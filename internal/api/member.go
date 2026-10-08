@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -23,7 +22,7 @@ func addTeamMemberHandler(member *access.Member) http.HandlerFunc {
 		}
 		added, err := member.AddTeamMember(r.Context(), id, params)
 		if err != nil {
-			writeMemberError(w, err)
+			writeHTTPError(w, err)
 			return
 		}
 		writeJSONResponse(w, http.StatusCreated, Response{Status: "ok", Body: added})
@@ -40,7 +39,7 @@ func removeTeamMemberHandler(member *access.Member) http.HandlerFunc {
 			return
 		}
 		if err := member.RemoveTeamMember(r.Context(), teamID, userID); err != nil {
-			writeMemberError(w, err)
+			writeHTTPError(w, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -54,7 +53,7 @@ func listTeamMembersHandler(member *access.Member) http.HandlerFunc {
 		}
 		members, err := member.ListTeamMembers(r.Context(), id)
 		if err != nil {
-			writeMemberError(w, err)
+			writeHTTPError(w, err)
 			return
 		}
 		writeJSONResponse(w, http.StatusOK, Response{Status: "ok", Body: members})
@@ -71,20 +70,4 @@ func memberPathID(w http.ResponseWriter, r *http.Request, key string) (pgtype.UU
 		return id, false
 	}
 	return id, true
-}
-func writeMemberError(w http.ResponseWriter, err error) {
-	status := http.StatusInternalServerError
-	message := "internal server error"
-	switch {
-	case errors.Is(err, access.ErrMemberExists):
-		status = http.StatusConflict
-		message = err.Error()
-	case errors.Is(err, access.ErrTeamNotFound), errors.Is(err, access.ErrMemberNotFound):
-		status = http.StatusNotFound
-		message = err.Error()
-	case errors.Is(err, access.ErrMemberEmail), errors.Is(err, access.ErrMemberOrganization):
-		status = http.StatusBadRequest
-		message = err.Error()
-	}
-	writeJSONResponse(w, status, Response{Status: "error", Message: message})
 }

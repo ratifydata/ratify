@@ -16,11 +16,17 @@ SELECT EXISTS (
     SELECT 1
     FROM users
     WHERE email = $1
+    AND org_id = $2
 )
 `
 
-func (q *Queries) CheckUserExistByEmail(ctx context.Context, email string) (bool, error) {
-	row := q.db.QueryRow(ctx, checkUserExistByEmail, email)
+type CheckUserExistByEmailParams struct {
+	Email string
+	OrgID pgtype.UUID
+}
+
+func (q *Queries) CheckUserExistByEmail(ctx context.Context, arg CheckUserExistByEmailParams) (bool, error) {
+	row := q.db.QueryRow(ctx, checkUserExistByEmail, arg.Email, arg.OrgID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -77,10 +83,16 @@ func (q *Queries) DeleteUser(ctx context.Context, id pgtype.UUID) error {
 const fetchUserByEmail = `-- name: FetchUserByEmail :one
 SELECT id, org_id, email, display_name, is_active, created_at, last_login_at FROM users
 WHERE email = $1
+  AND org_id = $2
 `
 
-func (q *Queries) FetchUserByEmail(ctx context.Context, email string) (User, error) {
-	row := q.db.QueryRow(ctx, fetchUserByEmail, email)
+type FetchUserByEmailParams struct {
+	Email string
+	OrgID pgtype.UUID
+}
+
+func (q *Queries) FetchUserByEmail(ctx context.Context, arg FetchUserByEmailParams) (User, error) {
+	row := q.db.QueryRow(ctx, fetchUserByEmail, arg.Email, arg.OrgID)
 	var i User
 	err := row.Scan(
 		&i.ID,

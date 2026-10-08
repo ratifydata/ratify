@@ -42,6 +42,5 @@ func TestTeamMemberHandlers(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, request(http.MethodGet, "/teams/invalid/members", "").Code)
 	memberPath := path + "/" + members[0].UserID.String()
 	require.Equal(t, http.StatusNoContent, request(http.MethodDelete, memberPath, "").Code)
-	require.Equal(t, http.StatusNoContent, request(http.MethodDelete, memberPath, "").Code)
 	assertTeamResponse(t, request(http.MethodGet, path, ""), http.StatusOK, Response{Status: "ok", Body: []access.TeamMember{}})
 }

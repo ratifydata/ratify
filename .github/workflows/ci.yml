@@ -52,7 +52,7 @@ jobs:
           - 5432:5432
         # GitHub waits for this health check to pass before
         # running any job steps. Without it, tests start before
-        # PostgreSQL is ready and fail with connection errors.
+        # PostgreSQL is ready and fail with connection error.
         options: >-
           --health-cmd pg_isready
           --health-interval 5s
@@ -216,11 +216,11 @@ jobs:
         run: npm run format:check
 
       # TypeScript type checking without emitting output files.
-      # Catches type errors that ESLint does not catch.
+      # Catches type error that ESLint does not catch.
       - name: Run type check
         run: npm run type-check
 
-      # Build the production bundle. Catches import errors, missing
+      # Build the production bundle. Catches import error, missing
       # modules, and Vite configuration issues that only surface
       # at build time, not during development.
       - name: Build production bundle

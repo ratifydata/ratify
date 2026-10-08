@@ -2,12 +2,16 @@ package access
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log/slog"
 	"strings"
 
+	"github.com/ratifydata/ratify/internal/apperrors"
+
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
+	"github.com/ratifydata/ratify/internal/util"
 )
 
 type TeamParams struct {
@@ -32,10 +36,9 @@ func NewTeam(db *sqlc.Queries) *Team {
 }
 
 func (t *Team) CreateTeam(ctx context.Context, args TeamParams) (*OrgTeam, error) {
-	orgID, ok := ctx.Value("OrgID").(pgtype.UUID)
-	if !ok || !orgID.Valid {
-		slog.Error("OrgID missing from context")
-		return nil, fmt.Errorf("OrgID missing from context")
+	orgID, err := util.ValidateOrgId(ctx)
+	if err != nil {
+		return nil, &apperrors.BadRequestError{Err: err}
 	}
 	teamExists, err := t.db.GetTeamByName(ctx, sqlc.GetTeamByNameParams{
 		Name:  formatString(args.Name),
@@ -47,7 +50,7 @@ func (t *Team) CreateTeam(ctx context.Context, args TeamParams) (*OrgTeam, error
 	}
 	if teamExists {
 		slog.Error("Team already exists")
-		return nil, fmt.Errorf("team already exists")
+		return nil, &apperrors.ConflictError{Err: errors.New("team already exists")}
 	}
 
 	team, err := t.db.CreateTeam(ctx, sqlc.CreateTeamParams{
@@ -64,37 +67,40 @@ func (t *Team) CreateTeam(ctx context.Context, args TeamParams) (*OrgTeam, error
 	}
 
 	return &OrgTeam{
-		ID:          team.ID,
-		Name:        team.Name,
-		Description: team.Description.String,
+		ID:           team.ID,
+		Name:         team.Name,
+		Description:  team.Description.String,
+		EmailAddress: team.EmailAddress,
 	}, nil
 
 }
 
 func (t *Team) GetTeam(ctx context.Context, teamId pgtype.UUID) (*OrgTeam, error) {
-	orgID, ok := ctx.Value("OrgID").(pgtype.UUID)
-	if !ok || !orgID.Valid {
-		slog.Error("OrgID missing from context")
-		return nil, fmt.Errorf("OrgID missing from context")
+	orgID, err := util.ValidateOrgId(ctx)
+	if err != nil {
+		return nil, &apperrors.BadRequestError{Err: err}
 	}
 
 	team, err := t.db.GetTeam(ctx, sqlc.GetTeamParams{ID: teamId, OrgID: orgID})
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, &apperrors.NotFoundError{Err: errors.New("team not found")}
+		}
 		return nil, err
 	}
 	return &OrgTeam{
-		ID:          team.ID,
-		Name:        team.Name,
-		Description: team.Description.String,
+		ID:           team.ID,
+		Name:         team.Name,
+		Description:  team.Description.String,
+		EmailAddress: team.EmailAddress,
 	}, nil
 
 }
 
 func (t *Team) ListTeams(ctx context.Context) ([]OrgTeam, error) {
-	orgID, ok := ctx.Value("OrgID").(pgtype.UUID)
-	if !ok || !orgID.Valid {
-		slog.Error("OrgID missing from context")
-		return nil, fmt.Errorf("OrgID missing from context")
+	orgID, err := util.ValidateOrgId(ctx)
+	if err != nil {
+		return nil, &apperrors.BadRequestError{Err: err}
 	}
 	teams, err := t.db.ListTeamsByOrg(ctx, orgID)
 	if err != nil {

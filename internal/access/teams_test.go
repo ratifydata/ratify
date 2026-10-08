@@ -4,7 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/ratifydata/ratify/internal/apperrors"
+
 	"github.com/jackc/pgx/v5/pgtype"
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
 	"github.com/ratifydata/ratify/internal/testutil"
@@ -55,7 +56,7 @@ func TestCreateTeam(t *testing.T) {
 	for _, tt := range test {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err = service.CreateTeam(ctx, TeamParams{
-				Name:        " Data Platform ",
+				Name:        tt.input,
 				Description: "Owns data pipelines",
 			})
 
@@ -81,9 +82,10 @@ func TestGetTeam(t *testing.T) {
 	require.NoError(t, err)
 	ctx := context.WithValue(t.Context(), "OrgID", org.ID)
 	stored, err := queries.CreateTeam(ctx, sqlc.CreateTeamParams{
-		OrgID:       org.ID,
-		Name:        "ENGINEERING",
-		Description: pgtype.Text{String: "Builds the platform", Valid: true},
+		OrgID:        org.ID,
+		Name:         "ENGINEERING",
+		Description:  pgtype.Text{String: "Builds the platform", Valid: true},
+		EmailAddress: "engineering@example.com",
 	})
 	require.NoError(t, err)
 
@@ -93,10 +95,11 @@ func TestGetTeam(t *testing.T) {
 	assert.Equal(t, stored.ID, team.ID)
 	assert.Equal(t, "ENGINEERING", team.Name)
 	assert.Equal(t, "Builds the platform", team.Description)
+	assert.Equal(t, stored.EmailAddress, team.EmailAddress)
 
 	t.Run("not found", func(t *testing.T) {
 		team, err := NewTeam(queries).GetTeam(ctx, pgtype.UUID{Valid: true})
-		require.ErrorIs(t, err, pgx.ErrNoRows)
+		require.ErrorAs(t, err, new(*apperrors.NotFoundError))
 		assert.Nil(t, team)
 	})
 }

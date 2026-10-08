@@ -5,6 +5,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/ratifydata/ratify/internal/apperrors"
+
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
 	"github.com/stretchr/testify/require"
 )
@@ -105,4 +108,41 @@ func TestListTeamMembers(t *testing.T) {
 	members, err = service.ListTeamMembers(ctx, team.ID)
 	require.NoError(t, err)
 	require.Equal(t, []TeamMember{{TeamID: team.ID, UserID: added.UserID, Role: "member", Email: "member@example.com"}}, members)
+}
+
+func TestTeamMemberOrganizationIsolation(t *testing.T) {
+	q := teamTestQueries(t)
+	org, err := q.CreateOrganization(t.Context(), sqlc.CreateOrganizationParams{Name: "Owner", Slug: "owner"})
+	require.NoError(t, err)
+	other, err := q.CreateOrganization(t.Context(), sqlc.CreateOrganizationParams{Name: "Other", Slug: "other"})
+	require.NoError(t, err)
+	ctx := context.WithValue(t.Context(), "OrgID", org.ID)
+	foreign := context.WithValue(t.Context(), "OrgID", other.ID)
+	team, err := q.CreateTeam(ctx, sqlc.CreateTeamParams{OrgID: org.ID, Name: "TEAM", EmailAddress: "team@example.com"})
+	require.NoError(t, err)
+	service := NewMember(q)
+	member, err := service.AddTeamMember(ctx, team.ID, MemberParams{Email: "member@example.com"})
+	require.NoError(t, err)
+	_, err = service.AddTeamMember(foreign, team.ID, MemberParams{Email: "intruder@example.com"})
+	require.ErrorAs(t, err, new(*apperrors.NotFoundError))
+	exists, err := q.CheckUserExistByEmail(foreign, sqlc.CheckUserExistByEmailParams{OrgID: other.ID, Email: "intruder@example.com"})
+	require.NoError(t, err)
+	require.False(t, exists)
+	_, err = service.ListTeamMembers(foreign, team.ID)
+	require.ErrorAs(t, err, new(*apperrors.NotFoundError))
+	require.ErrorAs(t, service.RemoveTeamMember(foreign, team.ID, member.UserID), new(*apperrors.NotFoundError))
+	members, err := service.ListTeamMembers(ctx, team.ID)
+	require.NoError(t, err)
+	require.Len(t, members, 1)
+	require.ErrorAs(t, service.RemoveTeamMember(ctx, team.ID, pgtype.UUID{Valid: true}), new(*apperrors.NotFoundError))
+}
+
+func TestTeamMemberMissingOrganization(t *testing.T) {
+	service := NewMember(nil)
+	id := pgtype.UUID{Valid: true}
+	_, err := service.AddTeamMember(t.Context(), id, MemberParams{Email: "member@example.com"})
+	require.ErrorAs(t, err, new(*apperrors.BadRequestError))
+	_, err = service.ListTeamMembers(t.Context(), id)
+	require.ErrorAs(t, err, new(*apperrors.BadRequestError))
+	require.ErrorAs(t, service.RemoveTeamMember(t.Context(), id, id), new(*apperrors.BadRequestError))
 }

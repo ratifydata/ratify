@@ -18,11 +18,13 @@ SELECT EXISTS (
     SELECT 1
     FROM users
     WHERE email = $1
+    AND org_id = $2
 );
 
 -- name: FetchUserByEmail :one
 SELECT * FROM users
-WHERE email = $1;
+WHERE email = $1
+  AND org_id = $2;
 
 -- name: ListUsersByOrg :many
 SELECT * FROM users

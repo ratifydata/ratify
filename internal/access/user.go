@@ -32,12 +32,15 @@ func NewUser(db *sqlc.Queries) *User {
 
 func (u User) GetUserViaMembership(ctx context.Context,
 	orgId pgtype.UUID, userParams UserParams) (*UserDetails, error) {
-	exist, err := u.userExists(ctx, userParams.Email)
+	exist, err := u.userExists(ctx, userParams.Email, orgId)
 	if err != nil {
 		return nil, err
 	}
 	if exist {
-		user, err := u.db.FetchUserByEmail(ctx, userParams.Email)
+		user, err := u.db.FetchUserByEmail(ctx, sqlc.FetchUserByEmailParams{
+			Email: userParams.Email,
+			OrgID: orgId,
+		})
 		if err != nil {
 			slog.Error("failed to fetch user by email", slog.String("email", userParams.Email))
 			return nil, err
@@ -58,7 +61,7 @@ func (u User) CreateUserViaEmail(ctx context.Context, userParams UserParams) (*U
 		return nil, err
 	}
 
-	exist, err := u.userExists(ctx, userParams.Email)
+	exist, err := u.userExists(ctx, userParams.Email, orgId)
 	if err != nil {
 		return nil, err
 	}
@@ -95,8 +98,11 @@ func (u User) createUser(ctx context.Context, orgId pgtype.UUID, userParams User
 
 // Checks if user exist in that Organization.
 // Assumption is a user will NOT belong in multiple orgs at the same time using the same email address
-func (u User) userExists(ctx context.Context, email string) (bool, error) {
-	exist, err := u.db.CheckUserExistByEmail(ctx, email)
+func (u User) userExists(ctx context.Context, email string, orgId pgtype.UUID) (bool, error) {
+	exist, err := u.db.CheckUserExistByEmail(ctx, sqlc.CheckUserExistByEmailParams{
+		Email: email,
+		OrgID: orgId,
+	})
 	if err != nil {
 		slog.Error("error checking user")
 		return false, err

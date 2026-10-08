@@ -98,7 +98,7 @@ func (i *Inspector) SchemaInspection(ctx context.Context, params ConnectionParam
 		Status:            "ACTIVE",
 	}
 
-	//The return entry has no use currently. Just check for errors
+	//The return entry has no use currently. Just check for error
 	_, err = i.db.CreateDatabaseConnection(ctx, args)
 	if err != nil {
 		slog.Error("error creating database connection")
