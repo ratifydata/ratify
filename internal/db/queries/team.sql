@@ -2,14 +2,22 @@
 INSERT INTO teams (
     org_id,
     name,
-    description
+    description,
+    email_address
 ) VALUES (
-    $1, $2, $3
+    $1, $2, $3,$4
 ) RETURNING *;
 
 -- name: GetTeam :one
 SELECT * FROM teams
 WHERE id = $1;
+
+-- name: GetTeamByName :one
+SELECT EXISTS (
+    SELECT 1 FROM teams
+    WHERE org_id = $1
+      AND name = $2
+) AS team_exists;
 
 -- name: ListTeamsByOrg :many
 SELECT * FROM teams
