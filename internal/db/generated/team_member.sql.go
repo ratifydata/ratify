@@ -18,7 +18,7 @@ INSERT INTO team_members (
     role
 ) VALUES (
     $1, $2, $3
-) RETURNING team_id, user_id, role, joined_at
+) RETURNING team_id, user_id, role, joined_at, deleted_at
 `
 
 type CreateTeamMemberParams struct {
@@ -35,28 +35,13 @@ func (q *Queries) CreateTeamMember(ctx context.Context, arg CreateTeamMemberPara
 		&i.UserID,
 		&i.Role,
 		&i.JoinedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
-const deleteTeamMember = `-- name: DeleteTeamMember :exec
-DELETE FROM team_members
-WHERE team_id = $1
-  AND user_id = $2
-`
-
-type DeleteTeamMemberParams struct {
-	TeamID pgtype.UUID
-	UserID pgtype.UUID
-}
-
-func (q *Queries) DeleteTeamMember(ctx context.Context, arg DeleteTeamMemberParams) error {
-	_, err := q.db.Exec(ctx, deleteTeamMember, arg.TeamID, arg.UserID)
-	return err
-}
-
 const getTeamMember = `-- name: GetTeamMember :one
-SELECT team_id, user_id, role, joined_at FROM team_members
+SELECT team_id, user_id, role, joined_at, deleted_at FROM team_members
 WHERE team_id = $1
   AND user_id = $2
 `
@@ -74,30 +59,40 @@ func (q *Queries) GetTeamMember(ctx context.Context, arg GetTeamMemberParams) (T
 		&i.UserID,
 		&i.Role,
 		&i.JoinedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const listTeamMembersByTeam = `-- name: ListTeamMembersByTeam :many
-SELECT team_id, user_id, role, joined_at FROM team_members
-WHERE team_id = $1
-ORDER BY joined_at
+SELECT tm.team_id, tm.user_id, tm.role, u.email
+FROM team_members tm
+JOIN users u ON u.id = tm.user_id
+WHERE tm.team_id = $1 AND tm.deleted_at IS NULL
+ORDER BY tm.joined_at, tm.user_id
 `
 
-func (q *Queries) ListTeamMembersByTeam(ctx context.Context, teamID pgtype.UUID) ([]TeamMember, error) {
+type ListTeamMembersByTeamRow struct {
+	TeamID pgtype.UUID
+	UserID pgtype.UUID
+	Role   string
+	Email  string
+}
+
+func (q *Queries) ListTeamMembersByTeam(ctx context.Context, teamID pgtype.UUID) ([]ListTeamMembersByTeamRow, error) {
 	rows, err := q.db.Query(ctx, listTeamMembersByTeam, teamID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []TeamMember
+	var items []ListTeamMembersByTeamRow
 	for rows.Next() {
-		var i TeamMember
+		var i ListTeamMembersByTeamRow
 		if err := rows.Scan(
 			&i.TeamID,
 			&i.UserID,
 			&i.Role,
-			&i.JoinedAt,
+			&i.Email,
 		); err != nil {
 			return nil, err
 		}
@@ -109,12 +104,58 @@ func (q *Queries) ListTeamMembersByTeam(ctx context.Context, teamID pgtype.UUID)
 	return items, nil
 }
 
+const removeTeamMember = `-- name: RemoveTeamMember :one
+UPDATE team_members
+SET deleted_at = NOW()
+WHERE team_id = $1
+  AND user_id = $2
+RETURNING team_id, user_id, role, joined_at, deleted_at
+`
+
+type RemoveTeamMemberParams struct {
+	TeamID pgtype.UUID
+	UserID pgtype.UUID
+}
+
+func (q *Queries) RemoveTeamMember(ctx context.Context, arg RemoveTeamMemberParams) (TeamMember, error) {
+	row := q.db.QueryRow(ctx, removeTeamMember, arg.TeamID, arg.UserID)
+	var i TeamMember
+	err := row.Scan(
+		&i.TeamID,
+		&i.UserID,
+		&i.Role,
+		&i.JoinedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const teamMemberExist = `-- name: TeamMemberExist :one
+SELECT EXISTS (
+    SELECT 1 FROM team_members
+    WHERE team_id = $1
+      AND user_id = $2
+) AS team_member_exists
+`
+
+type TeamMemberExistParams struct {
+	TeamID pgtype.UUID
+	UserID pgtype.UUID
+}
+
+func (q *Queries) TeamMemberExist(ctx context.Context, arg TeamMemberExistParams) (bool, error) {
+	row := q.db.QueryRow(ctx, teamMemberExist, arg.TeamID, arg.UserID)
+	var team_member_exists bool
+	err := row.Scan(&team_member_exists)
+	return team_member_exists, err
+}
+
 const updateTeamMemberRole = `-- name: UpdateTeamMemberRole :one
 UPDATE team_members
 SET role = $3
 WHERE team_id = $1
   AND user_id = $2
-RETURNING team_id, user_id, role, joined_at
+RETURNING team_id, user_id, role, joined_at, deleted_at
 `
 
 type UpdateTeamMemberRoleParams struct {
@@ -131,6 +172,7 @@ func (q *Queries) UpdateTeamMemberRole(ctx context.Context, arg UpdateTeamMember
 		&i.UserID,
 		&i.Role,
 		&i.JoinedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }

@@ -26,6 +26,7 @@ func NewRouter(pool *db.Pool, cfg *config.Config) *chi.Mux {
 
 	inspector := schema.NewInspector(queries, cfg.EncryptionKey)
 	orgTeamAccess := access.NewTeam(queries)
+	members := access.NewMember(queries)
 
 	// Health check endpoint.
 	r.Get("/health", healthHandler(pool))
@@ -44,6 +45,9 @@ func NewRouter(pool *db.Pool, cfg *config.Config) *chi.Mux {
 		r.Post("/api/v1/teams", createTeamsConnectionHandler(orgTeamAccess))
 		r.Get("/api/v1/teams/{id}", getTeamConnectionHandler(orgTeamAccess))
 		r.Get("/api/v1/teams", listOrgTeamsConnectionHandler(orgTeamAccess))
+		r.Post("/api/v1/teams/{id}/members", addTeamMemberHandler(members))
+		r.Get("/api/v1/teams/{id}/members", listTeamMembersHandler(members))
+		r.Delete("/api/v1/teams/{id}/members/{userID}", removeTeamMemberHandler(members))
 	})
 
 	return r

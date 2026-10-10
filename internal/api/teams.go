@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/ratifydata/ratify/internal/access"
 )
@@ -18,7 +19,7 @@ func createTeamsConnectionHandler(team *access.Team) http.HandlerFunc {
 
 		createdTeam, err := team.CreateTeam(r.Context(), params)
 		if err != nil {
-			writeJSONResponse(w, http.StatusBadRequest, Response{Status: "error", Message: err.Error()})
+			writeHTTPError(w, err)
 			return
 		}
 
@@ -29,7 +30,10 @@ func createTeamsConnectionHandler(team *access.Team) http.HandlerFunc {
 
 func getTeamConnectionHandler(team *access.Team) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
+		id := chi.URLParam(r, "id")
+		if id == "" {
+			id = r.PathValue("id")
+		}
 		if id == "" {
 			writeJSONResponse(w, http.StatusBadRequest, Response{Status: "error", Message: "invalid request"})
 			return
@@ -43,7 +47,7 @@ func getTeamConnectionHandler(team *access.Team) http.HandlerFunc {
 
 		orgTeam, err := team.GetTeam(r.Context(), teamId)
 		if err != nil {
-			writeJSONResponse(w, http.StatusInternalServerError, Response{Status: "error", Message: err.Error()})
+			writeHTTPError(w, err)
 			return
 		}
 		writeJSONResponse(w, http.StatusOK, Response{Status: "ok", Body: orgTeam})
@@ -55,7 +59,7 @@ func listOrgTeamsConnectionHandler(team *access.Team) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		teams, err := team.ListTeams(r.Context())
 		if err != nil {
-			writeJSONResponse(w, http.StatusInternalServerError, Response{Status: "error", Message: err.Error()})
+			writeHTTPError(w, err)
 			return
 		}
 		writeJSONResponse(w, http.StatusOK, Response{Status: "ok", Body: teams})

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/ratifydata/ratify/internal/access"
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
@@ -39,7 +39,7 @@ func TestCreateTeamsConnectionHandler(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/teams", strings.NewReader(`{"name":"Existing"}`)).WithContext(ctx)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
-		assertTeamResponse(t, rec, http.StatusBadRequest, Response{Status: "error", Message: "team already exists"})
+		assertTeamResponse(t, rec, http.StatusConflict, Response{Status: "error", Message: "team already exists"})
 		teams, err := queries.ListTeamsByOrg(ctx, orgID)
 		require.NoError(t, err)
 		count := 0
@@ -94,19 +94,38 @@ func TestGetTeamConnectionHandler(t *testing.T) {
 		handler.ServeHTTP(rec, req)
 		assertTeamResponse(t, rec, http.StatusBadRequest, Response{Status: "error", Message: "wrong id format"})
 	})
+
+	t.Run("chi route", func(t *testing.T) {
+		router := chi.NewRouter()
+		router.Get("/teams/{id}", handler)
+		req := httptest.NewRequest(http.MethodGet, "/teams/"+saved.ID.String(), nil).WithContext(ctx)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		assertTeamResponse(t, rec, http.StatusOK, Response{Status: "ok", Body: access.OrgTeam{ID: saved.ID, Name: saved.Name, Description: saved.Description.String}})
+	})
+	t.Run("other organization", func(t *testing.T) {
+		other, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{Name: "Other", Slug: "other-get"})
+		require.NoError(t, err)
+		foreign := context.WithValue(ctx, "OrgID", other.ID)
+		req := httptest.NewRequest(http.MethodGet, "/teams/"+saved.ID.String(), nil).WithContext(foreign)
+		req.SetPathValue("id", saved.ID.String())
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		assertTeamResponse(t, rec, http.StatusNotFound, Response{Status: "error", Message: "team not found"})
+	})
 	t.Run("not found", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/teams/00000000-0000-0000-0000-000000000000", nil).WithContext(ctx)
 		req.SetPathValue("id", "00000000-0000-0000-0000-000000000000")
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
-		assertTeamResponse(t, rec, http.StatusInternalServerError, Response{Status: "error", Message: pgx.ErrNoRows.Error()})
+		assertTeamResponse(t, rec, http.StatusNotFound, Response{Status: "error", Message: "team not found"})
 	})
 	t.Run("missing organization", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/teams/"+saved.ID.String(), nil)
 		req.SetPathValue("id", saved.ID.String())
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
-		assertTeamResponse(t, rec, http.StatusInternalServerError, Response{Status: "error", Message: "OrgID missing from context"})
+		assertTeamResponse(t, rec, http.StatusBadRequest, Response{Status: "error", Message: "OrgID missing from context"})
 	})
 }
 
@@ -140,7 +159,7 @@ func TestListOrgTeamsConnectionHandler(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/teams", nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
-		assertTeamResponse(t, rec, http.StatusInternalServerError, Response{Status: "error", Message: "OrgID missing from context"})
+		assertTeamResponse(t, rec, http.StatusBadRequest, Response{Status: "error", Message: "OrgID missing from context"})
 	})
 	t.Run("database error", func(t *testing.T) {
 		canceled, cancel := context.WithCancel(ctx)
@@ -148,7 +167,7 @@ func TestListOrgTeamsConnectionHandler(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/teams", nil).WithContext(canceled)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
-		assertTeamResponse(t, rec, http.StatusInternalServerError, Response{Status: "error", Message: context.Canceled.Error()})
+		assertTeamResponse(t, rec, http.StatusInternalServerError, Response{Status: "error", Message: "internal server error"})
 	})
 }
 

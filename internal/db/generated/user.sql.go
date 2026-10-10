@@ -11,6 +11,27 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const checkUserExistByEmail = `-- name: CheckUserExistByEmail :one
+SELECT EXISTS (
+    SELECT 1
+    FROM users
+    WHERE email = $1
+    AND org_id = $2
+)
+`
+
+type CheckUserExistByEmailParams struct {
+	Email string
+	OrgID pgtype.UUID
+}
+
+func (q *Queries) CheckUserExistByEmail(ctx context.Context, arg CheckUserExistByEmailParams) (bool, error) {
+	row := q.db.QueryRow(ctx, checkUserExistByEmail, arg.Email, arg.OrgID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (
     org_id,
@@ -57,6 +78,32 @@ WHERE id = $1
 func (q *Queries) DeleteUser(ctx context.Context, id pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, deleteUser, id)
 	return err
+}
+
+const fetchUserByEmail = `-- name: FetchUserByEmail :one
+SELECT id, org_id, email, display_name, is_active, created_at, last_login_at FROM users
+WHERE email = $1
+  AND org_id = $2
+`
+
+type FetchUserByEmailParams struct {
+	Email string
+	OrgID pgtype.UUID
+}
+
+func (q *Queries) FetchUserByEmail(ctx context.Context, arg FetchUserByEmailParams) (User, error) {
+	row := q.db.QueryRow(ctx, fetchUserByEmail, arg.Email, arg.OrgID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Email,
+		&i.DisplayName,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.LastLoginAt,
+	)
+	return i, err
 }
 
 const getUser = `-- name: GetUser :one
