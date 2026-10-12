@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/ratifydata/ratify/internal/schema"
 )
@@ -40,6 +41,7 @@ func schemaConnectionHandler(inspector inspectionValidator) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		writeJSONResponse(w, http.StatusOK, Response{Status: "ok"})
 	}
 
 }
@@ -56,24 +58,17 @@ func listDatabaseConnections(inspector connectionLister) http.HandlerFunc {
 			connections = []schema.StoredConnection{}
 		}
 
-		response, err := json.Marshal(connections)
-		if err != nil {
-			slog.Error("failed to encode database connections", "error", err)
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		if _, err := w.Write(response); err != nil {
-			slog.Error("failed to write database connections response", "error", err)
-		}
+		writeJSONResponse(w, http.StatusOK, Response{Status: "ok", Body: connections})
 	}
 
 }
 
 func testConnection(inspector connectionTester) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
+		id := chi.URLParam(r, "id")
+		if id == "" {
+			id = r.PathValue("id")
+		}
 		if id == "" {
 			writeJSONResponse(w, http.StatusBadRequest, Response{Status: "err", Message: "no connection id"})
 			return
@@ -95,12 +90,4 @@ func testConnection(inspector connectionTester) http.HandlerFunc {
 		writeJSONResponse(w, http.StatusOK, Response{Status: "ok"})
 	}
 
-}
-
-func writeJSONResponse(w http.ResponseWriter, statusCode int, response Response) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		slog.Error("failed to encode response", "error", err)
-	}
 }

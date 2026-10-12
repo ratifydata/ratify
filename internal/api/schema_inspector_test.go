@@ -69,6 +69,16 @@ func TestSchemaConnectionHandlerSuccess(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("got status %d, want %d", rec.Code, http.StatusOK)
 	}
+	if rec.Header().Get("Content-Type") != "application/json" {
+		t.Fatalf("content type = %q", rec.Header().Get("Content-Type"))
+	}
+	var result Response
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "ok" {
+		t.Fatalf("status = %q", result.Status)
+	}
 	if inspector.calls != 1 {
 		t.Fatalf("expected inspector to be called once, got %d calls", inspector.calls)
 	}

@@ -7,7 +7,6 @@ import (
 	"os"
 	"testing"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/ratifydata/ratify/internal/testutil"
 )
 

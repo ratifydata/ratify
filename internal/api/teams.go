@@ -62,6 +62,6 @@ func listOrgTeamsConnectionHandler(team *access.Team) http.HandlerFunc {
 			writeHTTPError(w, err)
 			return
 		}
-		writeJSONResponse(w, http.StatusOK, Response{Status: "ok", Body: teams})
+		writeJSONResponse(w, http.StatusOK, teams)
 	}
 }
