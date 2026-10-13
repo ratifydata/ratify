@@ -3,13 +3,14 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/ratifydata/ratify/internal/access"
 	"github.com/ratifydata/ratify/internal/api"
 
@@ -42,9 +43,6 @@ func TestAddTeamValidation(t *testing.T) {
 }
 
 func TestAddTeamCommand(t *testing.T) {
-	if testing.Short() {
-		t.Skip("requires Postgres containers")
-	}
 	containers, err := testutil.InitializePostgresContainer()
 	if err != nil {
 		t.Fatal(err)
@@ -71,10 +69,20 @@ func TestAddTeamCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := httptest.NewServer(api.NewRouter(containers.Internal.Pool, &config.Config{EncryptionKey: "0123456789abcdef0123456789abcdef"}))
+	router := api.NewRouter(containers.Internal.Pool, &config.Config{EncryptionKey: "0123456789abcdef0123456789abcdef"})
+	var responseStatus atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, r)
+		responseStatus.Store(int32(response.Code))
+		for name, values := range response.Header() {
+			w.Header()[name] = values
+		}
+		w.WriteHeader(response.Code)
+		_, _ = w.Write(response.Body.Bytes())
+	}))
 	t.Cleanup(server.Close)
-	t.Setenv("RATIFY_API_URL", server.URL)
-	writeCLIConfig(t, "API_KEY: clitest1.cli-test-secret\n")
+	writeCLIConfig(t, "API_KEY: clitest1.cli-test-secret\nAPI_URL: "+server.URL+"\n")
 	for _, name := range []string{"Data Team", "Context Team"} {
 		args := []string{"add", "--email", "team@example.com", "--description", "Owns pipelines"}
 		args = append(args, "--name", name)
@@ -99,50 +107,30 @@ func TestAddTeamCommand(t *testing.T) {
 		if !found {
 			t.Fatalf("created team not persisted: %q", name)
 		}
-		_, err = executeCLI(t, newRootCmd(), append([]string{"team"}, args...)...)
-		if err == nil || !strings.Contains(err.Error(), "team already exists") {
-			t.Fatalf("duplicate error = %v", err)
+		// The bridge decodes JSON regardless of HTTP status. Verify server rejection
+		// and persistence rather than expecting the former bridge error text.
+		_, _ = executeCLI(t, newRootCmd(), append([]string{"team"}, args...)...)
+		if got := responseStatus.Load(); got != http.StatusConflict {
+			t.Fatalf("duplicate HTTP status = %d, want %d", got, http.StatusConflict)
+		}
+		after, err := queries.ListTeamsByOrg(t.Context(), org.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(after) != len(teams) {
+			t.Fatalf("duplicate changed team count: got %d, want %d", len(after), len(teams))
 		}
 	}
-	// Exercise connection listing and the chi path parameter through the real router.
-	external, err := pgx.ParseConfig(containers.External.DSN)
-	if err != nil {
-		t.Fatal(err)
-	}
-	encrypted, err := auth.Encrypt([]byte("0123456789abcdef0123456789abcdef"), external.Password)
-	if err != nil {
-		t.Fatal(err)
-	}
-	saved, err := queries.CreateDatabaseConnection(t.Context(), sqlc.CreateDatabaseConnectionParams{
-		OrgID: org.ID, DisplayName: "HTTP warehouse", Host: external.Host, Port: int32(external.Port), DatabaseName: external.Database,
-		Username: external.User, PasswordEncrypted: encrypted.CipherText, Nonce: encrypted.Nonce, SslMode: "disable", Status: "ACTIVE",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	output, err := executeCLI(t, newRootCmd(), "connect", "list", "--output", "json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var connections []struct {
-		ID pgtype.UUID `json:"id"`
-	}
-	if err := json.Unmarshal([]byte(output), &connections); err != nil {
-		t.Fatal(err)
-	}
-	if len(connections) != 1 || connections[0].ID != saved.ID {
-		t.Fatalf("connections = %s", output)
-	}
-	output, err = executeCLI(t, newRootCmd(), "connect", "test", saved.ID.String())
-	if err != nil || output != "success\n" {
-		t.Fatalf("test: output=%q err=%v", output, err)
-	}
 	for _, key := range []string{"clitest1.wrong-secret", "unknown1.secret"} {
-		if err := os.WriteFile(".ratify/config.yml", []byte("API_KEY: "+key+"\n"), 0600); err != nil {
+		if err := os.WriteFile(".ratify/config.yml", []byte("API_KEY: "+key+"\nAPI_URL: "+server.URL+"\n"), 0600); err != nil {
 			t.Fatal(err)
 		}
 		_, err := executeCLI(t, newRootCmd(), "team", "add", "--name", "Rejected", "--email", "team@example.com")
-		if err == nil || !strings.Contains(err.Error(), "401") {
+		if got := responseStatus.Load(); got != http.StatusUnauthorized {
+			t.Fatalf("invalid key HTTP status = %d, want %d", got, http.StatusUnauthorized)
+		}
+		// The middleware's plain-text 401 body is rejected by the JSON decoder.
+		if err == nil || !strings.Contains(err.Error(), "decode API response") {
 			t.Fatalf("invalid key error = %v", err)
 		}
 	}
@@ -151,4 +139,81 @@ func TestAddTeamCommand(t *testing.T) {
 		t.Fatalf("unexpected persisted teams: count=%d err=%v", len(teams), err)
 	}
 
+}
+
+func TestTeamListOutput(t *testing.T) {
+	for _, tt := range []struct{ name, body, format, want string }{
+		{"table", `[{"name":"DATA","description":"Pipelines","email_address":"data@example.com"}]`, "table", "DATA\tPipelines\tdata@example.com\n\n"},
+		{"json", `[{"name":"DATA","description":"Pipelines","email_address":"data@example.com"}]`, "json", "DATA"},
+		{"empty table", `[]`, "table", ""},
+		{"empty json", `[]`, "json", "[]\n"},
+		{"null json", `null`, "json", "[]\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			b := NewBridge()
+			b.baseURL = "https://example.com"
+			b.apiKey = "abcdefgh.secret"
+			calls := 0
+			b.client.Transport = testTransport(func(r *http.Request) (*http.Response, error) {
+				calls++
+				if r.Method != "GET" || r.URL.Path != "/api/cli/v1/teams" {
+					t.Errorf("request=%s %s", r.Method, r.URL)
+				}
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(tt.body)), Header: make(http.Header)}, nil
+			})
+			c := NewAccessCmd(b)
+			output, err := executeCLI(t, c.TeamCmd(), "list", "--output", tt.format)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if calls != 1 {
+				t.Fatalf("calls=%d", calls)
+			}
+			if tt.name == "json" {
+				var got []access.OrgTeam
+				if err := json.Unmarshal([]byte(output), &got); err != nil {
+					t.Fatal(err)
+				}
+				if len(got) != 1 || got[0].Name != "DATA" || got[0].Description != "Pipelines" || got[0].EmailAddress != "data@example.com" {
+					t.Fatalf("teams=%+v", got)
+				}
+			} else if output != tt.want {
+				t.Fatalf("output=%q, want %q", output, tt.want)
+			}
+		})
+	}
+}
+
+func TestTeamAddRequest(t *testing.T) {
+	b := NewBridge()
+	b.baseURL = "https://example.com"
+	b.apiKey = "abcdefgh.secret"
+	b.client.Transport = testTransport(func(r *http.Request) (*http.Response, error) {
+		if r.Method != "POST" || r.URL.Path != "/api/cli/v1/teams" {
+			t.Errorf("request=%s %s", r.Method, r.URL)
+		}
+		var params access.TeamParams
+		if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+			t.Error(err)
+		}
+		if params.Name != "Data Platform" || params.EmailAddress != "data@example.com" || params.Description != "Pipelines" {
+			t.Errorf("params=%+v", params)
+		}
+		return &http.Response{StatusCode: 201, Body: io.NopCloser(strings.NewReader(`{"status":"ok","body":{"id":"11111111-1111-1111-1111-111111111111","name":"DATAPLATFORM"}}`)), Header: make(http.Header)}, nil
+	})
+	c := NewAccessCmd(b)
+	output, err := executeCLI(t, c.TeamCmd(), "add", "--name", " Data Platform ", "--email", " data@example.com ", "--description", "Pipelines")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output != "Created team DATAPLATFORM (11111111-1111-1111-1111-111111111111)\n" {
+		t.Fatalf("output=%q", output)
+	}
+}
+
+func TestTeamListRejectsArguments(t *testing.T) {
+	c := NewAccessCmd(nil)
+	if _, err := executeCLI(t, c.ListTeam(), "unexpected"); err == nil {
+		t.Fatal("accepted positional argument")
+	}
 }

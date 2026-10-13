@@ -90,7 +90,7 @@ func TestConnectionHTTPCommands(t *testing.T) {
 				_, _ = io.WriteString(w, tt.body)
 			}))
 			defer server.Close()
-			writeCLIConfig(t, "API_KEY: abcdefgh.secret\n")
+			writeCLIConfig(t, "API_KEY: abcdefgh.secret\nAPI_URL: "+server.URL+"\n")
 			t.Setenv("RATIFY_API_URL", server.URL)
 			output, err := executeCLI(t, newRootCmd(), tt.args...)
 			if tt.wantErr != "" {
@@ -125,7 +125,7 @@ func TestAddConnectionHTTP(t *testing.T) {
 		_, _ = io.WriteString(w, `{"status":"ok"}`)
 	}))
 	defer server.Close()
-	writeCLIConfig(t, "API_KEY: abcdefgh.secret\n")
+	writeCLIConfig(t, "API_KEY: abcdefgh.secret\nAPI_URL: "+server.URL+"\n")
 	python, err := exec.LookPath("python3")
 	if err != nil {
 		t.Fatal(err)
@@ -206,3 +206,48 @@ finally:
     os.close(master)
     os.close(slave)
 `
+
+type errorWriter struct{ err error }
+
+func (w errorWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestConnectionResultOutput(t *testing.T) {
+	for _, format := range []string{"text", "json"} {
+		t.Run(format, func(t *testing.T) {
+			cmd := &cobra.Command{}
+			var output bytes.Buffer
+			cmd.SetOut(&output)
+			want := connectionResult{Status: "ok", Message: "Connected"}
+			if err := writeConnectionResult(cmd, format, "success", want); err != nil {
+				t.Fatal(err)
+			}
+			if format == "text" {
+				if output.String() != "success\n" {
+					t.Fatalf("output=%q", output.String())
+				}
+			} else {
+				var got connectionResult
+				if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+					t.Fatal(err)
+				}
+				if got != want {
+					t.Fatalf("result=%+v", got)
+				}
+			}
+			sentinel := errors.New("output unavailable")
+			cmd.SetOut(errorWriter{sentinel})
+			if err := writeConnectionResult(cmd, format, "success", want); !errors.Is(err, sentinel) {
+				t.Fatalf("writer error=%v", err)
+			}
+		})
+	}
+	t.Run("unsuccessful", func(t *testing.T) {
+		cmd := &cobra.Command{}
+		var output bytes.Buffer
+		cmd.SetOut(&output)
+		err := writeConnectionResult(cmd, "json", "success", connectionResult{Status: "err", Message: "failed"})
+		if err == nil || output.Len() != 0 {
+			t.Fatalf("error=%v output=%q", err, output.String())
+		}
+	})
+}

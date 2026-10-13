@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -87,25 +88,13 @@ func (b *Bridge) Do(ctx context.Context, method, path string, input, output any)
 	if err != nil {
 		return fmt.Errorf("request to Ratify API failed: %w", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if resp.StatusCode == http.StatusUnauthorized {
-			return fmt.Errorf("API authentication failed (401); check your saved API key")
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			slog.Error("failed to close response body")
+			return
 		}
-		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		var envelope struct {
-			Message string `json:"message"`
-		}
-		message := strings.TrimSpace(string(data))
-		if json.Unmarshal(data, &envelope) == nil && envelope.Message != "" {
-			message = envelope.Message
-		}
-		message = strings.ReplaceAll(message, b.apiKey, "[redacted]")
-		if message == "" {
-			message = http.StatusText(resp.StatusCode)
-		}
-		return fmt.Errorf("Ratify API returned %d: %s", resp.StatusCode, message)
-	}
+	}(resp.Body)
 	if output == nil {
 		return nil
 	}

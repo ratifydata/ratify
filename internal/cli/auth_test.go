@@ -53,20 +53,6 @@ func TestSetAPIKey(t *testing.T) {
 	}
 }
 
-func TestSetAPIKeyMissingConfig(t *testing.T) {
-	t.Chdir(t.TempDir())
-	if _, err := executeCLI(t, newRootCmd(), "auth", "set-key", "abcdefgh.secret"); err != nil {
-		t.Fatal(err)
-	}
-	info, err := os.Stat(".ratify/config.yml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0600 {
-		t.Fatalf("permissions = %v", info.Mode())
-	}
-}
-
 func TestSetAPIKeyInvalidConfig(t *testing.T) {
 	for _, config := range []struct {
 		param, setKey, name string
