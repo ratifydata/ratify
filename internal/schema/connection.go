@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func EstablishConnection(ctx context.Context, driver, dsn string) (*sql.DB, error) {
