@@ -169,7 +169,7 @@ func (connectCmd *ConnectCmd) AddConnectionCmd() *cobra.Command {
 func promptConnectionDetails(output io.Writer) (*ConnectionDetails, error) {
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Fprint(output, "Database connection parameters. \n")
+	fmt.Println("Database connection parameters")
 	hostname, err := prompt(reader, output, "Hostname")
 	if err != nil {
 		return nil, err
@@ -198,16 +198,16 @@ func promptConnectionDetails(output io.Writer) (*ConnectionDetails, error) {
 		sslMode = string(schema.DISABLED)
 	}
 
-	fmt.Fprint(output, "Password: ")
+	fmt.Println(output, "Password: ")
 	passBytes, err := term.ReadPassword(syscall.Stdin)
-	fmt.Fprintln(output)
+	fmt.Println(output)
 	if err != nil {
 		return nil, fmt.Errorf("error reading password")
 	}
 
-	fmt.Fprintln(output, "Confirm Password: ")
+	fmt.Println("Confirm Password: ")
 	confirmPass, err := term.ReadPassword(syscall.Stdin)
-	fmt.Fprintln(output)
+	fmt.Println()
 	if err != nil {
 		return nil, fmt.Errorf("error reading password")
 	}
@@ -228,7 +228,7 @@ func promptConnectionDetails(output io.Writer) (*ConnectionDetails, error) {
 }
 
 func prompt(reader *bufio.Reader, output io.Writer, label string) (string, error) {
-	fmt.Fprintf(output, "%s: ", label)
+	fmt.Println(output, "%s: ", label)
 	value, err := reader.ReadString('\n')
 	if err != nil {
 		return "", err
