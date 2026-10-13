@@ -115,13 +115,21 @@ func TestAddConnectionHTTP(t *testing.T) {
 		if r.Method != "POST" || r.URL.Path != "/api/cli/v1/connections" || r.Header.Get("Authorization") != "Bearer abcdefgh.secret" {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
+		if r.Header.Get("Content-Type") != "application/json" || r.Header.Get("Accept") != "application/json" {
+			t.Error("missing JSON request headers")
+		}
 		var params schema.ConnectionParams
 		if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
 			t.Error(err)
 			w.WriteHeader(400)
 			return
 		}
-		received <- params
+		select {
+		case received <- params:
+		default:
+			t.Error("unexpected extra connection request")
+		}
+		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"status":"ok"}`)
 	}))
 	defer server.Close()
@@ -130,11 +138,14 @@ func TestAddConnectionHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	answers, _ := json.Marshal([]string{"db.example.com", "5433", "analytics", "reader", "require", "password", "password"})
+	answers, err := json.Marshal([]string{"db.example.com", "5433", "analytics", "reader", "require", "password", "password"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, python, "-c", connectionTerminalScript, os.Args[0], string(answers))
-	cmd.Env = append(os.Environ(), "RATIFY_ADD_HTTP_TEST=1", "RATIFY_API_URL="+server.URL)
+	cmd.Env = append(os.Environ(), "RATIFY_ADD_HTTP_TEST=1")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("interactive add: %v\n%s", err, output)
 	}
@@ -173,7 +184,8 @@ import json, os, pty, select, subprocess, sys, termios, time
 master, slave = pty.openpty()
 p = subprocess.Popen([sys.argv[1], '-test.run=^TestAddConnectionProcess$'], stdin=slave, stdout=slave, stderr=slave)
 answers = json.loads(sys.argv[2])
-prompts = [b'Hostname: ', b'Port [5432]: ', b'Database: ', b'Username: ', b'SSL mode [disable]: ', b'Password: ', b'Confirm Password: ']
+# Match labels: CLI prompts may use Println or formatted output.
+prompts = [b'Hostname', b'Port [5432]', b'Database', b'Username', b'SSL mode [disable]', b'Password:', b'Confirm Password:']
 buffer = b''
 step = 0
 deadline = time.monotonic() + 35
@@ -198,7 +210,7 @@ try:
             if step != len(prompts):
                 raise RuntimeError('child exited before completing all prompts')
             sys.exit(p.returncode)
-    raise TimeoutError('timed out waiting for interactive Add')
+    raise TimeoutError('timed out waiting for prompt: ' + repr(prompts[step] if step < len(prompts) else b'command completion'))
 finally:
     if p.poll() is None:
         p.kill()

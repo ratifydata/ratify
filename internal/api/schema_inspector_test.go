@@ -162,27 +162,59 @@ func TestListDatabaseConnectionsHandlerSuccess(t *testing.T) {
 		t.Errorf("Content-Type = %q, want %q", got, "application/json")
 	}
 
-	var got []schema.StoredConnection
+	var got struct {
+		Status string                    `json:"status"`
+		Body   []schema.StoredConnection `json:"body"`
+	}
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatalf("decode response body: %v", err)
 	}
-	if len(got) != 1 || got[0] != want[0] {
-		t.Errorf("response connections = %+v, want %+v", got, want)
+	if got.Status != "ok" {
+		t.Errorf("response status = %q, want ok", got.Status)
+	}
+	if len(got.Body) != 1 || got.Body[0] != want[0] {
+		t.Errorf("response connections = %+v, want %+v", got.Body, want)
 	}
 }
 
 func TestListDatabaseConnectionsHandlerEmpty(t *testing.T) {
-	lister := &stubConnectionLister{connections: nil}
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/connections", nil)
-	rec := httptest.NewRecorder()
+	for _, tt := range []struct {
+		name        string
+		connections []schema.StoredConnection
+	}{
+		{name: "nil"},
+		{name: "empty slice", connections: []schema.StoredConnection{}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			lister := &stubConnectionLister{connections: tt.connections}
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/connections", nil)
+			rec := httptest.NewRecorder()
 
-	listDatabaseConnections(lister).ServeHTTP(rec, req)
+			listDatabaseConnections(lister).ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("got status %d, want %d", rec.Code, http.StatusOK)
-	}
-	if rec.Body.String() != "[]" {
-		t.Errorf("response body = %q, want %q", rec.Body.String(), "[]")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("got status %d, want %d", rec.Code, http.StatusOK)
+			}
+			if lister.calls != 1 {
+				t.Fatalf("expected lister to be called once, got %d calls", lister.calls)
+			}
+			if got := rec.Header().Get("Content-Type"); got != "application/json" {
+				t.Errorf("Content-Type = %q, want application/json", got)
+			}
+			var got struct {
+				Status string                    `json:"status"`
+				Body   []schema.StoredConnection `json:"body"`
+			}
+			if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+				t.Fatalf("decode response body: %v", err)
+			}
+			if got.Status != "ok" {
+				t.Errorf("response status = %q, want ok", got.Status)
+			}
+			if got.Body == nil || len(got.Body) != 0 {
+				t.Errorf("response body = %#v, want an empty JSON array", got.Body)
+			}
+		})
 	}
 }
 
