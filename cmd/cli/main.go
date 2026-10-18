@@ -1,7 +1,5 @@
 package main
 
-import "fmt"
+import "github.com/ratifydata/ratify/internal/cli"
 
-func main() {
-	fmt.Println("Ratify CLI")
-}
+func main() { cli.Execute() }

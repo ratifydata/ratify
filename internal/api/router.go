@@ -32,23 +32,25 @@ func NewRouter(pool *db.Pool, cfg *config.Config) *chi.Mux {
 	r.Get("/health", healthHandler(pool))
 	r.Post("/auth/login", loginHandler(authLogin))
 
-	r.Group(func(r chi.Router) {
-		//Use by CLI
+	// Both transports use the same handlers and services with server-authenticated context.
+	register := func(r chi.Router) {
+		r.Post("/connections", schemaConnectionHandler(inspector))
+		r.Get("/connections", listDatabaseConnections(inspector))
+		r.Post("/connections/{id}/test", testConnection(inspector))
+		r.Post("/teams", createTeamsConnectionHandler(orgTeamAccess))
+		r.Get("/teams/{id}", getTeamConnectionHandler(orgTeamAccess))
+		r.Get("/teams", listOrgTeamsConnectionHandler(orgTeamAccess))
+		r.Post("/teams/{id}/members", addTeamMemberHandler(members))
+		r.Get("/teams/{id}/members", listTeamMembersHandler(members))
+		r.Delete("/teams/{id}/members/{userID}", removeTeamMemberHandler(members))
+	}
+	r.Route("/api/cli/v1", func(r chi.Router) {
 		r.Use(apiMiddleware.ApiKeyAuthHandler(apiKey))
-
+		register(r)
 	})
-	r.Group(func(r chi.Router) {
+	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(apiMiddleware.JwtAuthMiddleware(cfg))
-		r.Post("/api/v1/connections", schemaConnectionHandler(inspector))
-		r.Get("/api/v1/connections", listDatabaseConnections(inspector))
-		r.Post("/api/v1/connections/{id}/test", testConnection(inspector))
-		r.Post("/api/v1/teams", createTeamsConnectionHandler(orgTeamAccess))
-		r.Get("/api/v1/teams/{id}", getTeamConnectionHandler(orgTeamAccess))
-		r.Get("/api/v1/teams", listOrgTeamsConnectionHandler(orgTeamAccess))
-		r.Post("/api/v1/teams/{id}/members", addTeamMemberHandler(members))
-		r.Get("/api/v1/teams/{id}/members", listTeamMembersHandler(members))
-		r.Delete("/api/v1/teams/{id}/members/{userID}", removeTeamMemberHandler(members))
+		register(r)
 	})
-
 	return r
 }
