@@ -3,6 +3,10 @@ package contract
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
@@ -10,9 +14,15 @@ import (
 	"github.com/ratifydata/ratify/internal/util"
 )
 
+type contractDB interface {
+	sqlc.DBTX
+	Begin(context.Context) (pgx.Tx, error)
+}
+
 type ContractApi struct {
-	db         *sqlc.Queries
-	inspection *schema.Inspector
+	transactions contractDB
+	db           *sqlc.Queries
+	inspection   *schema.Inspector
 }
 
 type ContractParams struct {
@@ -20,7 +30,7 @@ type ContractParams struct {
 	TeamId            pgtype.UUID `json:"team_id"`
 	DisplayName       string      `json:"display_name"`
 	Description       pgtype.Text `json:"description"`
-	FreshnessSlaHours int32       `json:"freshness_sla_hours"`
+	FreshnessSlaHours *int32      `json:"freshness_sla_hours"`
 	SchemaName        string      `json:"schema_name"`
 	TableName         string      `json:"table_name"`
 }
@@ -40,7 +50,7 @@ type ContractColumn struct {
 	IsNullable        bool        `json:"is_nullable"`
 	IsPrimaryKey      bool        `json:"is_primary_key"`
 	Description       pgtype.Text `json:"description"`
-	Contstraints      []byte      `json:"contstraints"`
+	Constraints       []byte      `json:"constraints"`
 	Position          int32       `json:"position"`
 }
 
@@ -65,17 +75,20 @@ type ContractVersionModel struct {
 }
 
 type InitContractModel struct {
-	ContactId      pgtype.UUID        `json:"contact_id"`
+	ContractID     pgtype.UUID        `json:"contract_id"`
 	CurrentVersion int32              `json:"current_version"`
 	Status         string             `json:"status"`
 	TableName      string             `json:"table_name"`
 	TableColumns   []schema.TableData `json:"table_columns"`
 }
 
-func New(db *sqlc.Queries, encKey string) *ContractApi {
+// New accepts the metadata database pool used for queries and transactions.
+func New(db contractDB, encKey string) *ContractApi {
+	queries := sqlc.New(db)
 	return &ContractApi{
-		db:         db,
-		inspection: schema.NewInspector(db, encKey),
+		db:           queries,
+		transactions: db,
+		inspection:   schema.NewInspector(queries, encKey),
 	}
 }
 
@@ -90,17 +103,32 @@ func (c *ContractApi) InitContract(ctx context.Context, args ContractParams) (*I
 		return nil, err
 	}
 	//Fetch tables after validating schema
-	tableSnapshot, err := c.inspection.ContractValidation(ctx, args.ConnectionId, args.TableName)
+	tableSnapshot, err := c.inspection.ContractValidation(ctx, orgId, args.ConnectionId, args.SchemaName, args.TableName)
 	if err != nil {
 		return nil, err
 	}
+	return c.initContractSnapshot(ctx, orgId, userId, args, tableSnapshot)
+}
+
+func (c *ContractApi) initContractSnapshot(ctx context.Context, orgId, userId pgtype.UUID, args ContractParams, tableSnapshot *schema.TableSnapshot) (*InitContractModel, error) {
+	tx, err := c.transactions.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin contract initialization: %w", err)
+	}
+	defer func() {
+		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		defer cancel()
+		_ = tx.Rollback(rollbackCtx)
+	}()
+	// Use a separate instance so concurrent calls never share transaction state.
+	transactional := &ContractApi{db: c.db.WithTx(tx)}
 	//Create Contract
-	contractModel, err := c.CreateContract(ctx, orgId, args)
+	contractModel, err := transactional.CreateContract(ctx, orgId, args)
 	if err != nil {
 		return nil, err
 	}
 	//Create ContractVersion
-	contractVersion, err := c.ContractVersion(ctx, ContractVersion{
+	contractVersion, err := transactional.ContractVersion(ctx, ContractVersion{
 		ContractId:  contractModel.ID,
 		Version:     int32(1),
 		User:        userId,
@@ -110,12 +138,16 @@ func (c *ContractApi) InitContract(ctx context.Context, args ContractParams) (*I
 	if err != nil {
 		return nil, err
 	}
-	if err = c.ContractColumn(ctx, contractVersion.ID, tableSnapshot); err != nil {
+	if err = transactional.ContractColumn(ctx, contractVersion.ID, tableSnapshot); err != nil {
 		return nil, err
 	}
 
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit contract initialization: %w", err)
+	}
+
 	return &InitContractModel{
-		ContactId:      contractModel.ID,
+		ContractID:     contractModel.ID,
 		CurrentVersion: contractVersion.Version,
 		Status:         contractModel.Status,
 		TableName:      args.TableName,
@@ -124,18 +156,23 @@ func (c *ContractApi) InitContract(ctx context.Context, args ContractParams) (*I
 }
 
 func (c *ContractApi) CreateContract(ctx context.Context, orgId pgtype.UUID, args ContractParams) (*ContractModel, error) {
+	if _, err := c.db.GetTeam(ctx, sqlc.GetTeamParams{ID: args.TeamId, OrgID: orgId}); err != nil {
+		return nil, fmt.Errorf("validate producer team: %w", err)
+	}
+	var freshness pgtype.Int4
+	if args.FreshnessSlaHours != nil {
+		freshness = pgtype.Int4{Int32: *args.FreshnessSlaHours, Valid: true}
+	}
 	contract, err := c.db.CreateContract(ctx, sqlc.CreateContractParams{
-		OrgID:          orgId,
-		ConnectionID:   args.ConnectionId,
-		DisplayName:    args.DisplayName,
-		ProducerTeamID: args.TeamId,
-		SchemaName:     args.DisplayName,
-		TableName:      args.DisplayName,
-		Description:    args.Description,
-		FreshnessSlaHours: pgtype.Int4{
-			Int32: args.FreshnessSlaHours,
-			Valid: true,
-		},
+		OrgID:             orgId,
+		ConnectionID:      args.ConnectionId,
+		DisplayName:       args.DisplayName,
+		ProducerTeamID:    args.TeamId,
+		SchemaName:        args.SchemaName,
+		TableName:         args.TableName,
+		Description:       args.Description,
+		Status:            "draft",
+		FreshnessSlaHours: freshness,
 	})
 	if err != nil {
 		return nil, err
@@ -170,9 +207,11 @@ func (c *ContractApi) ContractVersion(ctx context.Context, args ContractVersion)
 		return nil, err
 	}
 	return &ContractVersionModel{
-		ID:         contractVersion.ID,
-		ContractId: contractVersion.ContractID,
-		Version:    contractVersion.VersionNumber,
+		ID:          contractVersion.ID,
+		ContractId:  contractVersion.ContractID,
+		Version:     contractVersion.VersionNumber,
+		User:        contractVersion.CreatedBy,
+		Description: contractVersion.ChangeSummary,
 	}, nil
 }
 
@@ -184,9 +223,8 @@ func (c *ContractApi) ContractColumn(ctx context.Context, versionId pgtype.UUID,
 			ColumnName:        tableData.ColumnName,
 			DataType:          tableData.DataType,
 			IsNullable:        tableData.IsNullable,
-			//Todo: Update the key to something fetched from the Schema
-			IsPrimaryKey:    false,
-			OrdinalPosition: tableData.OrdinalPosition,
+			IsPrimaryKey:      tableData.IsPrimaryKey,
+			OrdinalPosition:   tableData.OrdinalPosition,
 		})
 
 	}

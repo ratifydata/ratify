@@ -8,9 +8,10 @@ INSERT INTO contracts (
     table_name,
     description,
     status,
-    freshness_sla_hours
+    freshness_sla_hours,
+    current_version
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, 1
 ) RETURNING *;
 
 -- name: GetContract :one

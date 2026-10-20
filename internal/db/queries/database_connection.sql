@@ -17,7 +17,7 @@ INSERT INTO database_connections (
 
 -- name: GetDatabaseConnection :one
 SELECT * FROM database_connections
-WHERE id = $1;
+WHERE id = $1 AND org_id = $2;
 
 -- name: ListDatabaseConnectionsByOrg :many
 SELECT id,display_name,host,port,database_name,username,ssl_enabled,ssl_mode, status

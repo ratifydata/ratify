@@ -15,6 +15,7 @@ import (
 	"github.com/ratifydata/ratify/internal/apperrors"
 	"github.com/ratifydata/ratify/internal/auth"
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
+	"github.com/ratifydata/ratify/internal/util"
 )
 
 type ConnectionParams struct {
@@ -49,7 +50,7 @@ const (
 
 type inspectorStore interface {
 	CreateDatabaseConnection(context.Context, sqlc.CreateDatabaseConnectionParams) (sqlc.DatabaseConnection, error)
-	GetDatabaseConnection(context.Context, pgtype.UUID) (sqlc.DatabaseConnection, error)
+	GetDatabaseConnection(context.Context, sqlc.GetDatabaseConnectionParams) (sqlc.DatabaseConnection, error)
 	ListDatabaseConnectionsByOrg(context.Context, pgtype.UUID) ([]sqlc.ListDatabaseConnectionsByOrgRow, error)
 	UpdateDatabaseConnectionTestResult(context.Context, sqlc.UpdateDatabaseConnectionTestResultParams) error
 }
@@ -141,7 +142,11 @@ func (i *Inspector) ListDatabaseConnections(ctx context.Context) ([]StoredConnec
 }
 
 func (i *Inspector) TestConnection(ctx context.Context, id pgtype.UUID) (retErr error) {
-	connParams, err := i.validateConnection(ctx, id)
+	orgId, err := util.ValidateOrgId(ctx)
+	if err != nil {
+		return err
+	}
+	connParams, err := i.validateConnection(ctx, orgId, id)
 	if err != nil {
 		return err
 	}
@@ -157,8 +162,10 @@ func (i *Inspector) TestConnection(ctx context.Context, id pgtype.UUID) (retErr 
 
 }
 
-func (i *Inspector) ContractValidation(ctx context.Context, id pgtype.UUID, tableName string) (*TableSnapshot, error) {
-	connParams, err := i.validateConnection(ctx, id)
+func (i *Inspector) ContractValidation(ctx context.Context,
+	orgId pgtype.UUID,
+	id pgtype.UUID, schemaName, tableName string) (*TableSnapshot, error) {
+	connParams, err := i.validateConnection(ctx, orgId, id)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +175,13 @@ func (i *Inspector) ContractValidation(ctx context.Context, id pgtype.UUID, tabl
 	if err != nil {
 		return nil, err
 	}
-	exist, err := TableExist(ctx, sqlDb, tableName)
+	defer func(sqlDb *sql.DB) {
+		err := sqlDb.Close()
+		if err != nil {
+			slog.Error("error closing database connection")
+		}
+	}(sqlDb)
+	exist, err := TableExist(ctx, sqlDb, schemaName, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -177,12 +190,15 @@ func (i *Inspector) ContractValidation(ctx context.Context, id pgtype.UUID, tabl
 			Err: fmt.Errorf("table %s does not exist", tableName),
 		}
 	}
-	return GetTableSchema(ctx, sqlDb, tableName)
+	return GetTableSchema(ctx, sqlDb, schemaName, tableName)
 
 }
 
-func (i *Inspector) validateConnection(ctx context.Context, connectionID pgtype.UUID) (connParams ConnectionParams, retErr error) {
-	dbConn, err := i.db.GetDatabaseConnection(ctx, connectionID)
+func (i *Inspector) validateConnection(ctx context.Context, orgId pgtype.UUID, connectionID pgtype.UUID) (connParams ConnectionParams, retErr error) {
+	dbConn, err := i.db.GetDatabaseConnection(ctx, sqlc.GetDatabaseConnectionParams{
+		OrgID: orgId,
+		ID:    connectionID,
+	})
 	if err != nil {
 		slog.Error("error getting database connection from database")
 		return ConnectionParams{}, err
