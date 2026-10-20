@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/ratifydata/ratify/internal/apperrors"
 	"github.com/ratifydata/ratify/internal/auth"
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
 )
@@ -140,10 +141,51 @@ func (i *Inspector) ListDatabaseConnections(ctx context.Context) ([]StoredConnec
 }
 
 func (i *Inspector) TestConnection(ctx context.Context, id pgtype.UUID) (retErr error) {
-	dbConn, err := i.db.GetDatabaseConnection(ctx, id)
+	connParams, err := i.validateConnection(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	err = establishRemoteConnection(ctx, connParams)
+	if err != nil {
+		slog.Error("error establishing postgres connection and validating privileges")
+		return err
+	}
+
+	//Update last_updated column db connection
+	return nil
+
+}
+
+func (i *Inspector) ContractValidation(ctx context.Context, id pgtype.UUID, tableName string) (*TableSnapshot, error) {
+	connParams, err := i.validateConnection(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	dsn := normalizeDsn(connParams)
+	sqlDb, err := EstablishConnection(ctx, connParams.DriverName, dsn)
+	if err != nil {
+		return nil, err
+	}
+	exist, err := TableExist(ctx, sqlDb, tableName)
+	if err != nil {
+		return nil, err
+	}
+	if !exist {
+		return nil, &apperrors.NotFoundError{
+			Err: fmt.Errorf("table %s does not exist", tableName),
+		}
+	}
+	return GetTableSchema(ctx, sqlDb, tableName)
+
+}
+
+func (i *Inspector) validateConnection(ctx context.Context, connectionID pgtype.UUID) (connParams ConnectionParams, retErr error) {
+	dbConn, err := i.db.GetDatabaseConnection(ctx, connectionID)
 	if err != nil {
 		slog.Error("error getting database connection from database")
-		return err
+		return ConnectionParams{}, err
 	}
 
 	// Once the connection record is available, persist the outcome of every test.
@@ -162,9 +204,10 @@ func (i *Inspector) TestConnection(ctx context.Context, id pgtype.UUID) (retErr 
 	decryptedPass, err := auth.Decrypt(dbConn.Nonce, dbConn.PasswordEncrypted, []byte(i.encKey))
 	if err != nil {
 		slog.Error("error decrypting password")
-		return err
+		return connParams, err
 	}
-	connParams := ConnectionParams{
+
+	return ConnectionParams{
 		Host:         dbConn.Host,
 		Port:         int(dbConn.Port),
 		Username:     dbConn.Username,
@@ -173,16 +216,7 @@ func (i *Inspector) TestConnection(ctx context.Context, id pgtype.UUID) (retErr 
 		SSLMode:      dbConn.SslMode,
 		SSlEnabled:   dbConn.SslEnabled,
 		DriverName:   "pgx",
-	}
-
-	err = establishRemoteConnection(ctx, connParams)
-	if err != nil {
-		slog.Error("error establishing postgres connection and validating privileges")
-		return err
-	}
-
-	//Update last_updated column db connection
-	return nil
+	}, nil
 
 }
 
@@ -200,18 +234,9 @@ func (i *Inspector) updateConnectionTestResult(ctx context.Context, testPassed b
 }
 
 func establishRemoteConnection(ctx context.Context, params ConnectionParams) error {
-	//Makes the Url-Escape safe
-	u := &url.URL{
-		Scheme: "postgres",
-		User:   url.UserPassword(params.Username, params.Password),
-		Host:   net.JoinHostPort(params.Host, strconv.Itoa(params.Port)),
-		Path:   params.DatabaseName,
-	}
-	q := u.Query()
-	q.Set("sslmode", params.SSLMode)
-	u.RawQuery = q.Encode()
+	dsn := normalizeDsn(params)
 
-	db, err := EstablishConnection(ctx, params.DriverName, u.String())
+	db, err := EstablishConnection(ctx, params.DriverName, dsn)
 	if err != nil {
 		slog.Error("error establishing connection to driver")
 		return err
@@ -227,4 +252,18 @@ func establishRemoteConnection(ctx context.Context, params ConnectionParams) err
 	}
 
 	return nil
+}
+
+func normalizeDsn(params ConnectionParams) string {
+	//Makes the Url-Escape safe
+	u := &url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(params.Username, params.Password),
+		Host:   net.JoinHostPort(params.Host, strconv.Itoa(params.Port)),
+		Path:   params.DatabaseName,
+	}
+	q := u.Query()
+	q.Set("sslmode", params.SSLMode)
+	u.RawQuery = q.Encode()
+	return u.String()
 }

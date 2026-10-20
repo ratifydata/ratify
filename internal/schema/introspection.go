@@ -3,6 +3,7 @@ package schema
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"log/slog"
 )
 
@@ -12,9 +13,15 @@ type TableList struct {
 }
 
 type TableData struct {
-	ColumnName string
-	DataType   string
-	IsNullable string
+	ColumnName      string `json:"ColumnName"`
+	DataType        string `json:"DataType"`
+	IsNullable      bool   `json:"IsNullable"`
+	OrdinalPosition int32  `json:"OrdinalPosition"`
+}
+
+type TableSnapshot struct {
+	TableName string      `json:"table_name"`
+	Columns   []TableData `json:"columns"`
 }
 
 func ListTables(ctx context.Context, db *sql.DB) ([]TableList, error) {
@@ -63,13 +70,38 @@ func TableExist(ctx context.Context, db *sql.DB, table string) (bool, error) {
 	return exists, nil
 }
 
-func GetTableSchema(ctx context.Context, db *sql.DB, tableName string) ([]TableData, error) {
-	const table_column_query = `SELECT 
-    	column_name,  data_type, is_nullable
-		FROM information_schema.columns
-		WHERE table_name = $1 ;`
+func GetTableSchema(ctx context.Context, db *sql.DB, tableName string) (*TableSnapshot, error) {
+	const table_column_query = `SELECT jsonb_build_object(
+    'TableName', t.table_name,
+    'SchemaName', t.table_schema,
+    'Columns', (
+        SELECT COALESCE(
+            jsonb_agg(
+                jsonb_build_object(
+                    'ColumnName', c.column_name,
+                    'DataType', c.data_type,
+                    'IsNullable', c.is_nullable,
+                	'OrdinalPosition', c.ordinal_position
+                )
+                ORDER BY c.ordinal_position
+            ),
+            '[]'::jsonb
+        )
+        FROM information_schema.columns c
+        WHERE c.table_schema = t.table_schema
+          AND c.table_name = t.table_name
+    )
+) AS table_details
+FROM information_schema.tables t
+WHERE t.table_type = 'BASE TABLE'
+  AND t.table_schema NOT IN (
+      'pg_catalog',
+      'information_schema'
+  )
+  AND t.table_schema NOT LIKE 'pg_toast%'
+ORDER BY t.table_schema, t.table_name;`
 
-	var columnList []TableData
+	var snapShot TableSnapshot
 	row, err := db.QueryContext(ctx, table_column_query, tableName)
 	defer func(row *sql.Rows) {
 		err := row.Close()
@@ -80,17 +112,9 @@ func GetTableSchema(ctx context.Context, db *sql.DB, tableName string) ([]TableD
 	if err != nil {
 		return nil, err
 	}
-	for row.Next() {
-		var t TableData
-		if err := row.Scan(&t.ColumnName, &t.DataType, &t.IsNullable); err != nil {
-			return nil, err
-		}
-		columnList = append(columnList, t)
-	}
-	if err := row.Err(); err != nil {
-
+	if err := json.Unmarshal([]byte(table_column_query), &snapShot); err != nil {
 		return nil, err
 	}
-	return columnList, nil
+	return &snapShot, nil
 
 }
