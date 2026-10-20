@@ -12,6 +12,21 @@ INSERT INTO contract_columns (
     $1, $2, $3, $4, $5, $6, $7, $8
 ) RETURNING *;
 
+-- name: InsertContractColumns :copyfrom
+INSERT INTO contract_columns (
+    contract_version_id,
+    column_name,
+    data_type,
+    is_nullable,
+    is_primary_key,
+    description,
+    "constraints",
+    ordinal_position
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8
+ );
+
+
 -- name: GetContractColumn :one
 SELECT * FROM contract_columns
 WHERE id = $1;

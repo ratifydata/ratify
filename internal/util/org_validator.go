@@ -22,3 +22,16 @@ func ValidateOrgId(ctx context.Context) (pgtype.UUID, error) {
 	return orgID, nil
 
 }
+
+func ValidateUserId(ctx context.Context) (pgtype.UUID, error) {
+	userID, ok := ctx.Value("UserID").(pgtype.UUID)
+	if !ok {
+		slog.Error("UserID missing from context")
+		return pgtype.UUID{}, fmt.Errorf("UserID missing from context")
+	}
+	if !userID.Valid {
+		slog.Error("UserID not valid")
+		return pgtype.UUID{}, errors.New("UserID not valid")
+	}
+	return userID, nil
+}

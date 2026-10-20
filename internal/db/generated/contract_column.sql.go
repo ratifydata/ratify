@@ -113,6 +113,17 @@ func (q *Queries) GetContractColumnByName(ctx context.Context, arg GetContractCo
 	return i, err
 }
 
+type InsertContractColumnsParams struct {
+	ContractVersionID pgtype.UUID
+	ColumnName        string
+	DataType          string
+	IsNullable        bool
+	IsPrimaryKey      bool
+	Description       pgtype.Text
+	Constraints       []byte
+	OrdinalPosition   int32
+}
+
 const listContractColumnsByVersion = `-- name: ListContractColumnsByVersion :many
 SELECT id, contract_version_id, column_name, data_type, is_nullable, is_primary_key, description, constraints, ordinal_position FROM contract_columns
 WHERE contract_version_id = $1

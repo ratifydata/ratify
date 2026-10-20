@@ -12,6 +12,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/ratifydata/ratify/internal/apperrors"
+	"github.com/stretchr/testify/require"
+
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/ratifydata/ratify/internal/auth"
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
@@ -27,7 +32,7 @@ func init() {
 
 type fakeInspectorStore struct {
 	create func(context.Context, sqlc.CreateDatabaseConnectionParams) (sqlc.DatabaseConnection, error)
-	get    func(context.Context, pgtype.UUID) (sqlc.DatabaseConnection, error)
+	get    func(context.Context, sqlc.GetDatabaseConnectionParams) (sqlc.DatabaseConnection, error)
 	list   func(context.Context, pgtype.UUID) ([]sqlc.ListDatabaseConnectionsByOrgRow, error)
 	update func(context.Context, sqlc.UpdateDatabaseConnectionTestResultParams) error
 }
@@ -36,8 +41,8 @@ func (f *fakeInspectorStore) CreateDatabaseConnection(ctx context.Context, param
 	return f.create(ctx, params)
 }
 
-func (f *fakeInspectorStore) GetDatabaseConnection(ctx context.Context, id pgtype.UUID) (sqlc.DatabaseConnection, error) {
-	return f.get(ctx, id)
+func (f *fakeInspectorStore) GetDatabaseConnection(ctx context.Context, params sqlc.GetDatabaseConnectionParams) (sqlc.DatabaseConnection, error) {
+	return f.get(ctx, params)
 }
 
 func (f *fakeInspectorStore) ListDatabaseConnectionsByOrg(ctx context.Context, id pgtype.UUID) ([]sqlc.ListDatabaseConnectionsByOrgRow, error) {
@@ -130,7 +135,10 @@ func TestSchemaInspection(t *testing.T) {
 			listed.Host, listed.Port, listed.DatabaseName, listed.Username,
 			params.Host, params.Port, params.DatabaseName, params.Username)
 	}
-	got, err := queries.GetDatabaseConnection(ctx, listed.ID)
+	got, err := queries.GetDatabaseConnection(ctx, sqlc.GetDatabaseConnectionParams{
+		OrgID: org.ID,
+		ID:    listed.ID,
+	})
 	if err != nil {
 		t.Fatalf("get stored database connection: %v", err)
 	}
@@ -245,12 +253,13 @@ func TestConnection(t *testing.T) {
 	params := testConnectionParams(t)
 	created := createStoredTestConnection(t, ctx, queries, params, inspectionEncryptionKey, "test-connection-success")
 
+	ctx = context.WithValue(ctx, "OrgID", created.OrgID)
 	inspector := NewInspector(queries, inspectionEncryptionKey)
 	if err := inspector.TestConnection(ctx, created.ID); err != nil {
 		t.Fatalf("TestConnection() error = %v, want nil", err)
 	}
 
-	got, err := queries.GetDatabaseConnection(ctx, created.ID)
+	got, err := queries.GetDatabaseConnection(ctx, sqlc.GetDatabaseConnectionParams{ID: created.ID, OrgID: created.OrgID})
 	if err != nil {
 		t.Fatalf("get tested database connection: %v", err)
 	}
@@ -285,12 +294,16 @@ func TestConnectionRecordsDecryptionFailure(t *testing.T) {
 		t.Fatalf("corrupt stored credentials: %v", err)
 	}
 
+	ctx = context.WithValue(ctx, "OrgID", created.OrgID)
 	err = NewInspector(queries, inspectionEncryptionKey).TestConnection(ctx, created.ID)
 	if err == nil {
 		t.Fatal("TestConnection() error = nil, want a decryption error")
 	}
 
-	got, getErr := queries.GetDatabaseConnection(ctx, created.ID)
+	got, getErr := queries.GetDatabaseConnection(ctx, sqlc.GetDatabaseConnectionParams{
+		ID:    created.ID,
+		OrgID: created.OrgID,
+	})
 	if getErr != nil {
 		t.Fatalf("get tested database connection: %v", getErr)
 	}
@@ -373,12 +386,12 @@ func TestListDatabaseConnectionsQueryFailure(t *testing.T) {
 func TestConnectionGetFailure(t *testing.T) {
 	wantErr := errors.New("get failed")
 	store := &fakeInspectorStore{
-		get: func(context.Context, pgtype.UUID) (sqlc.DatabaseConnection, error) {
+		get: func(context.Context, sqlc.GetDatabaseConnectionParams) (sqlc.DatabaseConnection, error) {
 			return sqlc.DatabaseConnection{}, wantErr
 		},
 	}
 
-	err := NewInspector(store, inspectionEncryptionKey).TestConnection(context.Background(), pgtype.UUID{Valid: true})
+	err := NewInspector(store, inspectionEncryptionKey).TestConnection(context.WithValue(t.Context(), "OrgID", pgtype.UUID{Valid: true}), pgtype.UUID{Valid: true})
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("TestConnection() error = %v, want %v", err, wantErr)
 	}
@@ -392,7 +405,7 @@ func TestConnectionRemoteFailure(t *testing.T) {
 	id := pgtype.UUID{Bytes: [16]byte{1}, Valid: true}
 	updated := false
 	store := &fakeInspectorStore{
-		get: func(context.Context, pgtype.UUID) (sqlc.DatabaseConnection, error) {
+		get: func(context.Context, sqlc.GetDatabaseConnectionParams) (sqlc.DatabaseConnection, error) {
 			return sqlc.DatabaseConnection{
 				ID:                id,
 				Host:              "127.0.0.1",
@@ -406,19 +419,19 @@ func TestConnectionRemoteFailure(t *testing.T) {
 		},
 		update: func(_ context.Context, params sqlc.UpdateDatabaseConnectionTestResultParams) error {
 			updated = true
-			if !params.LastTestPassed.Valid || params.LastTestPassed.Bool {
-				t.Errorf("last test passed = %+v, want false", params.LastTestPassed)
+			if params.ID != id {
+				t.Errorf("updated connection = %v, want %v", params.ID, id)
 			}
 			return nil
 		},
 	}
 
-	err = NewInspector(store, inspectionEncryptionKey).TestConnection(context.Background(), id)
+	err = NewInspector(store, inspectionEncryptionKey).TestConnection(context.WithValue(t.Context(), "OrgID", pgtype.UUID{Valid: true}), id)
 	if err == nil {
 		t.Fatal("TestConnection() error = nil, want remote connection error")
 	}
 	if !updated {
-		t.Fatal("TestConnection() did not persist the failed result")
+		t.Fatal("TestConnection() did not record credential validation")
 	}
 }
 
@@ -427,7 +440,7 @@ func TestConnectionJoinsResultUpdateFailure(t *testing.T) {
 	updateErr := errors.New("update failed")
 	id := pgtype.UUID{Bytes: [16]byte{2}, Valid: true}
 	store := &fakeInspectorStore{
-		get: func(context.Context, pgtype.UUID) (sqlc.DatabaseConnection, error) {
+		get: func(context.Context, sqlc.GetDatabaseConnectionParams) (sqlc.DatabaseConnection, error) {
 			return sqlc.DatabaseConnection{
 				ID:                id,
 				PasswordEncrypted: []byte("invalid ciphertext"),
@@ -439,7 +452,7 @@ func TestConnectionJoinsResultUpdateFailure(t *testing.T) {
 		},
 	}
 
-	err := NewInspector(store, inspectionEncryptionKey).TestConnection(context.Background(), id)
+	err := NewInspector(store, inspectionEncryptionKey).TestConnection(context.WithValue(t.Context(), "OrgID", pgtype.UUID{Valid: true}), id)
 	if err == nil {
 		t.Fatal("TestConnection() error = nil, want joined error")
 	}
@@ -523,4 +536,77 @@ func createStoredTestConnection(
 		t.Fatalf("create stored database connection: %v", err)
 	}
 	return created
+}
+
+func TestConnectionRejectsInvalidOrganization(t *testing.T) {
+	inspector := NewInspector(sqlc.New(testDB.Internal.Pool), inspectionEncryptionKey)
+	for _, value := range []interface{}{nil, "invalid", pgtype.UUID{}} {
+		ctx := t.Context()
+		if value != nil {
+			ctx = context.WithValue(ctx, "OrgID", value)
+		}
+		err := inspector.TestConnection(ctx, pgtype.UUID{Valid: true})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "OrgID")
+	}
+}
+
+func TestConnectionRejectsOtherOrganization(t *testing.T) {
+	queries := sqlc.New(testDB.Internal.Pool)
+	stored := createStoredTestConnection(t, t.Context(), queries, testConnectionParams(t), inspectionEncryptionKey, "connection-owner-"+uuid.NewString())
+	other, err := queries.CreateOrganization(t.Context(), sqlc.CreateOrganizationParams{Name: "Other", Slug: uuid.NewString()})
+	require.NoError(t, err)
+	ctx := context.WithValue(t.Context(), "OrgID", other.ID)
+	err = NewInspector(queries, inspectionEncryptionKey).TestConnection(ctx, stored.ID)
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+	unchanged, err := queries.GetDatabaseConnection(t.Context(), sqlc.GetDatabaseConnectionParams{ID: stored.ID, OrgID: stored.OrgID})
+	require.NoError(t, err)
+	require.False(t, unchanged.LastTestedAt.Valid)
+	require.False(t, unchanged.LastTestPassed.Valid)
+}
+
+func TestContractValidation(t *testing.T) {
+	queries := sqlc.New(testDB.Internal.Pool)
+	stored := createStoredTestConnection(t, t.Context(), queries, testConnectionParams(t), inspectionEncryptionKey, "contract-validation-"+uuid.NewString())
+	inspector := NewInspector(queries, inspectionEncryptionKey)
+	schemaA := "inspect_a_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	schemaB := "inspect_b_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	_, err := testDB.Internal.Pool.Exec(t.Context(), `CREATE SCHEMA `+schemaA+`; CREATE SCHEMA `+schemaB+`;
+ CREATE TABLE `+schemaA+`.orders (other_column text);
+ CREATE TABLE `+schemaB+`.orders (tenant_id integer, id integer, note text, PRIMARY KEY (tenant_id, id));`)
+	require.NoError(t, err)
+	t.Run("schema qualified snapshot", func(t *testing.T) {
+		got, err := inspector.ContractValidation(t.Context(), stored.OrgID, stored.ID, schemaB, "orders")
+		require.NoError(t, err)
+		want := &TableSnapshot{SchemaName: schemaB, TableName: "orders", Columns: []TableData{
+			{ColumnName: "tenant_id", DataType: "integer", IsPrimaryKey: true, OrdinalPosition: 1},
+			{ColumnName: "id", DataType: "integer", IsPrimaryKey: true, OrdinalPosition: 2},
+			{ColumnName: "note", DataType: "text", IsNullable: true, OrdinalPosition: 3},
+		}}
+		require.Equal(t, want, got)
+	})
+	for _, tt := range []struct{ name, schema, table string }{
+		{"missing table", schemaB, "missing"}, {"wrong schema", "missing_schema", "orders"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := inspector.ContractValidation(t.Context(), stored.OrgID, stored.ID, tt.schema, tt.table)
+			require.Nil(t, got)
+			var notFound *apperrors.NotFoundError
+			require.ErrorAs(t, err, &notFound)
+		})
+	}
+	t.Run("foreign organization", func(t *testing.T) {
+		other, err := queries.CreateOrganization(t.Context(), sqlc.CreateOrganizationParams{Name: "Foreign", Slug: uuid.NewString()})
+		require.NoError(t, err)
+		got, err := inspector.ContractValidation(t.Context(), other.ID, stored.ID, schemaB, "orders")
+		require.Nil(t, got)
+		require.ErrorIs(t, err, pgx.ErrNoRows)
+	})
+	t.Run("canceled request", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		got, err := inspector.ContractValidation(ctx, stored.OrgID, stored.ID, schemaB, "orders")
+		require.Nil(t, got)
+		require.ErrorIs(t, err, context.Canceled)
+	})
 }

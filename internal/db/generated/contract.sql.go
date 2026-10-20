@@ -21,9 +21,10 @@ INSERT INTO contracts (
     table_name,
     description,
     status,
-    freshness_sla_hours
+    freshness_sla_hours,
+    current_version
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, 1
 ) RETURNING id, org_id, connection_id, producer_team_id, display_name, schema_name, table_name, description, status, current_version, freshness_sla_hours, activated_at, deprecated_at, created_at, updated_at
 `
 
