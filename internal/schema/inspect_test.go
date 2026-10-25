@@ -271,7 +271,7 @@ func TestConnection(t *testing.T) {
 	}
 }
 
-func TestConnectionRecordsDecryptionFailure(t *testing.T) {
+func TestConnectionDoesNotRecordDecryptionFailure(t *testing.T) {
 	ctx := context.Background()
 	queries := sqlc.New(testDB.Internal.Pool)
 	params := testConnectionParams(t)
@@ -307,12 +307,8 @@ func TestConnectionRecordsDecryptionFailure(t *testing.T) {
 	if getErr != nil {
 		t.Fatalf("get tested database connection: %v", getErr)
 	}
-	if !got.LastTestedAt.Valid {
-		t.Error("TestConnection() did not set last_tested_at after failure")
-	}
-	if !got.LastTestPassed.Valid || got.LastTestPassed.Bool {
-		t.Errorf("TestConnection() last_test_passed = %+v, want false", got.LastTestPassed)
-	}
+	require.False(t, got.LastTestedAt.Valid, "decryption failure must not update last_tested_at")
+	require.False(t, got.LastTestPassed.Valid, "decryption failure must not update last_test_passed")
 }
 
 func TestSchemaInspectionConnectionFailure(t *testing.T) {
@@ -422,6 +418,7 @@ func TestConnectionRemoteFailure(t *testing.T) {
 			if params.ID != id {
 				t.Errorf("updated connection = %v, want %v", params.ID, id)
 			}
+			require.Equal(t, pgtype.Bool{Bool: false, Valid: true}, params.LastTestPassed)
 			return nil
 		},
 	}
@@ -431,37 +428,49 @@ func TestConnectionRemoteFailure(t *testing.T) {
 		t.Fatal("TestConnection() error = nil, want remote connection error")
 	}
 	if !updated {
-		t.Fatal("TestConnection() did not record credential validation")
+		t.Fatal("TestConnection() did not record remote connection failure")
 	}
 }
 
 func TestConnectionJoinsResultUpdateFailure(t *testing.T) {
-	decryptErrText := "cipher: message authentication failed"
+	encrypted, err := auth.Encrypt([]byte(inspectionEncryptionKey), "password")
+	require.NoError(t, err)
 	updateErr := errors.New("update failed")
 	id := pgtype.UUID{Bytes: [16]byte{2}, Valid: true}
+	orgID := pgtype.UUID{Bytes: [16]byte{3}, Valid: true}
+	ctx, cancel := context.WithCancel(context.WithValue(t.Context(), "OrgID", orgID))
+	defer cancel()
+	updated := false
 	store := &fakeInspectorStore{
 		get: func(context.Context, sqlc.GetDatabaseConnectionParams) (sqlc.DatabaseConnection, error) {
+			// Cancel after loading the record so the remote test fails deterministically.
+			cancel()
 			return sqlc.DatabaseConnection{
 				ID:                id,
-				PasswordEncrypted: []byte("invalid ciphertext"),
-				Nonce:             make([]byte, 12),
+				Host:              "127.0.0.1",
+				Port:              1,
+				SslMode:           "disable",
+				PasswordEncrypted: encrypted.CipherText,
+				Nonce:             encrypted.Nonce,
 			}, nil
 		},
-		update: func(context.Context, sqlc.UpdateDatabaseConnectionTestResultParams) error {
+		update: func(updateCtx context.Context, params sqlc.UpdateDatabaseConnectionTestResultParams) error {
+			updated = true
+			require.NoError(t, updateCtx.Err(), "result update must survive request cancellation")
+			require.Equal(t, orgID, updateCtx.Value("OrgID"))
+			_, hasDeadline := updateCtx.Deadline()
+			require.True(t, hasDeadline, "result update must have a timeout")
+			require.Equal(t, id, params.ID)
+			require.Equal(t, pgtype.Bool{Bool: false, Valid: true}, params.LastTestPassed)
 			return updateErr
 		},
 	}
 
-	err := NewInspector(store, inspectionEncryptionKey).TestConnection(context.WithValue(t.Context(), "OrgID", pgtype.UUID{Valid: true}), id)
-	if err == nil {
-		t.Fatal("TestConnection() error = nil, want joined error")
-	}
-	if !strings.Contains(err.Error(), decryptErrText) {
-		t.Errorf("TestConnection() error = %q, want decryption error", err)
-	}
-	if !errors.Is(err, updateErr) {
-		t.Errorf("TestConnection() error = %v, want joined update error %v", err, updateErr)
-	}
+	err = NewInspector(store, inspectionEncryptionKey).TestConnection(ctx, id)
+	require.True(t, updated)
+	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorIs(t, err, updateErr)
+	require.ErrorContains(t, err, "update connection test result")
 }
 
 func TestEstablishRemoteConnectionValidationFailure(t *testing.T) {
@@ -585,6 +594,11 @@ func TestContractValidation(t *testing.T) {
 		}}
 		require.Equal(t, want, got)
 	})
+	unchanged, err := queries.GetDatabaseConnection(t.Context(), sqlc.GetDatabaseConnectionParams{ID: stored.ID, OrgID: stored.OrgID})
+	require.NoError(t, err)
+	require.False(t, unchanged.LastTestedAt.Valid, "contract validation must not record a connection test")
+	require.False(t, unchanged.LastTestPassed.Valid)
+
 	for _, tt := range []struct{ name, schema, table string }{
 		{"missing table", schemaB, "missing"}, {"wrong schema", "missing_schema", "orders"},
 	} {

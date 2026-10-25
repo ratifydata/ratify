@@ -151,6 +151,18 @@ func (i *Inspector) TestConnection(ctx context.Context, id pgtype.UUID) (retErr 
 		return err
 	}
 
+	// Once the connection record is available, persist the outcome of every test.
+	// Use a short-lived context independent of the request cancellation so a timeout
+	// in the remote test does not prevent recording the failed result.
+	defer func() {
+		updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		defer cancel()
+
+		if err := i.updateConnectionTestResult(updateCtx, retErr == nil, id); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("update connection test result: %w", err))
+		}
+	}()
+
 	err = establishRemoteConnection(ctx, connParams)
 	if err != nil {
 		slog.Error("error establishing postgres connection and validating privileges")
@@ -203,18 +215,6 @@ func (i *Inspector) validateConnection(ctx context.Context, orgId pgtype.UUID, c
 		slog.Error("error getting database connection from database")
 		return ConnectionParams{}, err
 	}
-
-	// Once the connection record is available, persist the outcome of every test.
-	// Use a short-lived context independent of the request cancellation so a timeout
-	// in the remote test does not prevent recording the failed result.
-	defer func() {
-		updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
-		defer cancel()
-
-		if err := i.updateConnectionTestResult(updateCtx, retErr == nil, dbConn.ID); err != nil {
-			retErr = errors.Join(retErr, fmt.Errorf("update connection test result: %w", err))
-		}
-	}()
 
 	//Establish Connection from the stored credentials by decrypting password and establishing connection
 	decryptedPass, err := auth.Decrypt(dbConn.Nonce, dbConn.PasswordEncrypted, []byte(i.encKey))
