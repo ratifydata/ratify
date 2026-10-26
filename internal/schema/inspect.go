@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/ratifydata/ratify/internal/apperrors"
 	"github.com/ratifydata/ratify/internal/auth"
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
+	"github.com/ratifydata/ratify/internal/util"
 )
 
 type ConnectionParams struct {
@@ -48,7 +50,7 @@ const (
 
 type inspectorStore interface {
 	CreateDatabaseConnection(context.Context, sqlc.CreateDatabaseConnectionParams) (sqlc.DatabaseConnection, error)
-	GetDatabaseConnection(context.Context, pgtype.UUID) (sqlc.DatabaseConnection, error)
+	GetDatabaseConnection(context.Context, sqlc.GetDatabaseConnectionParams) (sqlc.DatabaseConnection, error)
 	ListDatabaseConnectionsByOrg(context.Context, pgtype.UUID) ([]sqlc.ListDatabaseConnectionsByOrgRow, error)
 	UpdateDatabaseConnectionTestResult(context.Context, sqlc.UpdateDatabaseConnectionTestResultParams) error
 }
@@ -140,9 +142,12 @@ func (i *Inspector) ListDatabaseConnections(ctx context.Context) ([]StoredConnec
 }
 
 func (i *Inspector) TestConnection(ctx context.Context, id pgtype.UUID) (retErr error) {
-	dbConn, err := i.db.GetDatabaseConnection(ctx, id)
+	orgId, err := util.ValidateOrgId(ctx)
 	if err != nil {
-		slog.Error("error getting database connection from database")
+		return err
+	}
+	connParams, err := i.validateConnection(ctx, orgId, id)
+	if err != nil {
 		return err
 	}
 
@@ -153,27 +158,10 @@ func (i *Inspector) TestConnection(ctx context.Context, id pgtype.UUID) (retErr 
 		updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 		defer cancel()
 
-		if err := i.updateConnectionTestResult(updateCtx, retErr == nil, dbConn.ID); err != nil {
+		if err := i.updateConnectionTestResult(updateCtx, retErr == nil, id); err != nil {
 			retErr = errors.Join(retErr, fmt.Errorf("update connection test result: %w", err))
 		}
 	}()
-
-	//Establish Connection from the stored credentials by decrypting password and establishing connection
-	decryptedPass, err := auth.Decrypt(dbConn.Nonce, dbConn.PasswordEncrypted, []byte(i.encKey))
-	if err != nil {
-		slog.Error("error decrypting password")
-		return err
-	}
-	connParams := ConnectionParams{
-		Host:         dbConn.Host,
-		Port:         int(dbConn.Port),
-		Username:     dbConn.Username,
-		Password:     decryptedPass,
-		DatabaseName: dbConn.DatabaseName,
-		SSLMode:      dbConn.SslMode,
-		SSlEnabled:   dbConn.SslEnabled,
-		DriverName:   "pgx",
-	}
 
 	err = establishRemoteConnection(ctx, connParams)
 	if err != nil {
@@ -183,6 +171,68 @@ func (i *Inspector) TestConnection(ctx context.Context, id pgtype.UUID) (retErr 
 
 	//Update last_updated column db connection
 	return nil
+
+}
+
+func (i *Inspector) ContractValidation(ctx context.Context,
+	orgId pgtype.UUID,
+	id pgtype.UUID, schemaName, tableName string) (*TableSnapshot, error) {
+	connParams, err := i.validateConnection(ctx, orgId, id)
+	if err != nil {
+		return nil, err
+	}
+
+	dsn := normalizeDsn(connParams)
+	sqlDb, err := EstablishConnection(ctx, connParams.DriverName, dsn)
+	if err != nil {
+		return nil, err
+	}
+	defer func(sqlDb *sql.DB) {
+		err := sqlDb.Close()
+		if err != nil {
+			slog.Error("error closing database connection")
+		}
+	}(sqlDb)
+	exist, err := TableExist(ctx, sqlDb, schemaName, tableName)
+	if err != nil {
+		return nil, err
+	}
+	if !exist {
+		return nil, &apperrors.NotFoundError{
+			Err: fmt.Errorf("table %s does not exist", tableName),
+		}
+	}
+	return GetTableSchema(ctx, sqlDb, schemaName, tableName)
+
+}
+
+func (i *Inspector) validateConnection(ctx context.Context, orgId pgtype.UUID, connectionID pgtype.UUID) (connParams ConnectionParams, retErr error) {
+	dbConn, err := i.db.GetDatabaseConnection(ctx, sqlc.GetDatabaseConnectionParams{
+		OrgID: orgId,
+		ID:    connectionID,
+	})
+	if err != nil {
+		slog.Error("error getting database connection from database")
+		return ConnectionParams{}, err
+	}
+
+	//Establish Connection from the stored credentials by decrypting password and establishing connection
+	decryptedPass, err := auth.Decrypt(dbConn.Nonce, dbConn.PasswordEncrypted, []byte(i.encKey))
+	if err != nil {
+		slog.Error("error decrypting password")
+		return connParams, err
+	}
+
+	return ConnectionParams{
+		Host:         dbConn.Host,
+		Port:         int(dbConn.Port),
+		Username:     dbConn.Username,
+		Password:     decryptedPass,
+		DatabaseName: dbConn.DatabaseName,
+		SSLMode:      dbConn.SslMode,
+		SSlEnabled:   dbConn.SslEnabled,
+		DriverName:   "pgx",
+	}, nil
 
 }
 
@@ -200,18 +250,9 @@ func (i *Inspector) updateConnectionTestResult(ctx context.Context, testPassed b
 }
 
 func establishRemoteConnection(ctx context.Context, params ConnectionParams) error {
-	//Makes the Url-Escape safe
-	u := &url.URL{
-		Scheme: "postgres",
-		User:   url.UserPassword(params.Username, params.Password),
-		Host:   net.JoinHostPort(params.Host, strconv.Itoa(params.Port)),
-		Path:   params.DatabaseName,
-	}
-	q := u.Query()
-	q.Set("sslmode", params.SSLMode)
-	u.RawQuery = q.Encode()
+	dsn := normalizeDsn(params)
 
-	db, err := EstablishConnection(ctx, params.DriverName, u.String())
+	db, err := EstablishConnection(ctx, params.DriverName, dsn)
 	if err != nil {
 		slog.Error("error establishing connection to driver")
 		return err
@@ -227,4 +268,18 @@ func establishRemoteConnection(ctx context.Context, params ConnectionParams) err
 	}
 
 	return nil
+}
+
+func normalizeDsn(params ConnectionParams) string {
+	//Makes the Url-Escape safe
+	u := &url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(params.Username, params.Password),
+		Host:   net.JoinHostPort(params.Host, strconv.Itoa(params.Port)),
+		Path:   params.DatabaseName,
+	}
+	q := u.Query()
+	q.Set("sslmode", params.SSLMode)
+	u.RawQuery = q.Encode()
+	return u.String()
 }

@@ -91,11 +91,16 @@ func (q *Queries) DeleteDatabaseConnection(ctx context.Context, id pgtype.UUID) 
 
 const getDatabaseConnection = `-- name: GetDatabaseConnection :one
 SELECT id, org_id, display_name, host, port, database_name, username, password_encrypted, ssl_enabled, ssl_mode, status, last_tested_at, last_test_passed, created_at, updated_at, nonce FROM database_connections
-WHERE id = $1
+WHERE id = $1 AND org_id = $2
 `
 
-func (q *Queries) GetDatabaseConnection(ctx context.Context, id pgtype.UUID) (DatabaseConnection, error) {
-	row := q.db.QueryRow(ctx, getDatabaseConnection, id)
+type GetDatabaseConnectionParams struct {
+	ID    pgtype.UUID
+	OrgID pgtype.UUID
+}
+
+func (q *Queries) GetDatabaseConnection(ctx context.Context, arg GetDatabaseConnectionParams) (DatabaseConnection, error) {
+	row := q.db.QueryRow(ctx, getDatabaseConnection, arg.ID, arg.OrgID)
 	var i DatabaseConnection
 	err := row.Scan(
 		&i.ID,

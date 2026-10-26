@@ -7,6 +7,7 @@ import (
 	apiMiddleware "github.com/ratifydata/ratify/internal/api/middleware"
 	"github.com/ratifydata/ratify/internal/auth"
 	"github.com/ratifydata/ratify/internal/config"
+	"github.com/ratifydata/ratify/internal/contract"
 	"github.com/ratifydata/ratify/internal/db"
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
 	"github.com/ratifydata/ratify/internal/schema"
@@ -28,6 +29,8 @@ func NewRouter(pool *db.Pool, cfg *config.Config) *chi.Mux {
 	orgTeamAccess := access.NewTeam(queries)
 	members := access.NewMember(queries)
 
+	contractApi := contract.New(pool, cfg.EncryptionKey)
+
 	// Health check endpoint.
 	r.Get("/health", healthHandler(pool))
 	r.Post("/auth/login", loginHandler(authLogin))
@@ -43,6 +46,7 @@ func NewRouter(pool *db.Pool, cfg *config.Config) *chi.Mux {
 		r.Post("/teams/{id}/members", addTeamMemberHandler(members))
 		r.Get("/teams/{id}/members", listTeamMembersHandler(members))
 		r.Delete("/teams/{id}/members/{userID}", removeTeamMemberHandler(members))
+		r.Post("/contracts", createContract(contractApi))
 	}
 	r.Route("/api/cli/v1", func(r chi.Router) {
 		r.Use(apiMiddleware.ApiKeyAuthHandler(apiKey))
