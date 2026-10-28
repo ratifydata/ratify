@@ -11,6 +11,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const activateContract = `-- name: ActivateContract :exec
+UPDATE contracts
+SET activated_at = now(), status = 'active',current_version = $2
+WHERE id = $1
+`
+
+type ActivateContractParams struct {
+	ID             pgtype.UUID
+	CurrentVersion int32
+}
+
+func (q *Queries) ActivateContract(ctx context.Context, arg ActivateContractParams) error {
+	_, err := q.db.Exec(ctx, activateContract, arg.ID, arg.CurrentVersion)
+	return err
+}
+
 const createContract = `-- name: CreateContract :one
 INSERT INTO contracts (
     org_id,
@@ -112,11 +128,16 @@ func (q *Queries) GetActiveContractForTable(ctx context.Context, arg GetActiveCo
 
 const getContract = `-- name: GetContract :one
 SELECT id, org_id, connection_id, producer_team_id, display_name, schema_name, table_name, description, status, current_version, freshness_sla_hours, activated_at, deprecated_at, created_at, updated_at FROM contracts
-WHERE id = $1
+WHERE id = $1 and org_id = $2
 `
 
-func (q *Queries) GetContract(ctx context.Context, id pgtype.UUID) (Contract, error) {
-	row := q.db.QueryRow(ctx, getContract, id)
+type GetContractParams struct {
+	ID    pgtype.UUID
+	OrgID pgtype.UUID
+}
+
+func (q *Queries) GetContract(ctx context.Context, arg GetContractParams) (Contract, error) {
+	row := q.db.QueryRow(ctx, getContract, arg.ID, arg.OrgID)
 	var i Contract
 	err := row.Scan(
 		&i.ID,
