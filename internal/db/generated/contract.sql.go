@@ -11,20 +11,24 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const activateContract = `-- name: ActivateContract :exec
+const activateContract = `-- name: ActivateContract :execrows
 UPDATE contracts
-SET activated_at = now(), status = 'active',current_version = $2
-WHERE id = $1
+SET activated_at = now(), status = 'active', current_version = $2, updated_at = now()
+WHERE id = $1 AND org_id = $3 AND status = 'draft'
 `
 
 type ActivateContractParams struct {
 	ID             pgtype.UUID
 	CurrentVersion int32
+	OrgID          pgtype.UUID
 }
 
-func (q *Queries) ActivateContract(ctx context.Context, arg ActivateContractParams) error {
-	_, err := q.db.Exec(ctx, activateContract, arg.ID, arg.CurrentVersion)
-	return err
+func (q *Queries) ActivateContract(ctx context.Context, arg ActivateContractParams) (int64, error) {
+	result, err := q.db.Exec(ctx, activateContract, arg.ID, arg.CurrentVersion, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const createContract = `-- name: CreateContract :one
@@ -138,6 +142,40 @@ type GetContractParams struct {
 
 func (q *Queries) GetContract(ctx context.Context, arg GetContractParams) (Contract, error) {
 	row := q.db.QueryRow(ctx, getContract, arg.ID, arg.OrgID)
+	var i Contract
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ConnectionID,
+		&i.ProducerTeamID,
+		&i.DisplayName,
+		&i.SchemaName,
+		&i.TableName,
+		&i.Description,
+		&i.Status,
+		&i.CurrentVersion,
+		&i.FreshnessSlaHours,
+		&i.ActivatedAt,
+		&i.DeprecatedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getContractForUpdate = `-- name: GetContractForUpdate :one
+SELECT id, org_id, connection_id, producer_team_id, display_name, schema_name, table_name, description, status, current_version, freshness_sla_hours, activated_at, deprecated_at, created_at, updated_at FROM contracts
+WHERE id = $1 AND org_id = $2
+FOR UPDATE
+`
+
+type GetContractForUpdateParams struct {
+	ID    pgtype.UUID
+	OrgID pgtype.UUID
+}
+
+func (q *Queries) GetContractForUpdate(ctx context.Context, arg GetContractForUpdateParams) (Contract, error) {
+	row := q.db.QueryRow(ctx, getContractForUpdate, arg.ID, arg.OrgID)
 	var i Contract
 	err := row.Scan(
 		&i.ID,
