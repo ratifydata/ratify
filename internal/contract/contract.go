@@ -66,6 +66,10 @@ type ContractModel struct {
 	FreshnessSlaHours pgtype.Int4
 }
 
+type ActivateContract struct {
+	ID pgtype.UUID `json:"id"`
+}
+
 type ContractVersionModel struct {
 	ID          pgtype.UUID `json:"contract_version_id"`
 	ContractId  pgtype.UUID `json:"contract_id"`
@@ -110,6 +114,104 @@ func (c *ContractApi) InitContract(ctx context.Context, args ContractParams) (*I
 	return c.initContractSnapshot(ctx, orgId, userId, args, tableSnapshot)
 }
 
+func (c *ContractApi) ActivateContract(ctx context.Context, args ActivateContract) error {
+	orgId, err := util.ValidateOrgId(ctx)
+	if err != nil {
+		return err
+	}
+
+	userId, err := util.ValidateUserId(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Lock the draft and persist activation and any new version atomically.
+	tx, err := c.transactions.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		defer cancel()
+		_ = tx.Rollback(rollbackCtx)
+	}()
+
+	transactional := &ContractApi{
+		db:         c.db.WithTx(tx),
+		inspection: c.inspection,
+	}
+
+	contract, err := transactional.db.GetContractForUpdate(ctx, sqlc.GetContractForUpdateParams{
+		ID:    args.ID,
+		OrgID: orgId,
+	})
+	if err != nil {
+		return err
+	}
+	if contract.Status != "draft" {
+		return fmt.Errorf("operation cannot be activated. contract is draft")
+	}
+
+	//Get ConnectionID to ValidateSchema on Activation
+	tableSnapshot, err := transactional.inspection.ContractValidation(ctx, orgId, contract.ConnectionID, contract.SchemaName, contract.TableName)
+	if err != nil {
+		//Error fetching live schema
+		return err
+	}
+	//Get Draft contract version
+	currentVersion, err := transactional.db.GetContractVersionByContractId(ctx, args.ID)
+	if err != nil {
+		return err
+	}
+
+	versionNumber := currentVersion.VersionNumber
+	//Compare Schema At the point of Activation,
+	schemaComparison, err := ValidateContractAgainstSchema(currentVersion.SchemaSnapshot, tableSnapshot)
+	if err != nil {
+		return err
+	}
+	// Unchanged schemas retain their version without inserting columns.
+	if len(schemaComparison) > 0 {
+		versionNumber++
+		contractVersion, err := transactional.ContractVersion(ctx, ContractVersion{
+			ContractId: args.ID,
+			Version:    versionNumber,
+			User:       userId,
+			Snapshot:   tableSnapshot,
+		})
+		if err != nil {
+			return err
+		}
+		if err := transactional.ContractColumn(ctx, contractVersion.ID, tableSnapshot); err != nil {
+			return err
+		}
+	}
+	if err := transactional.activateContract(ctx, args.ID, orgId, versionNumber); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit contract activation: %w", err)
+	}
+	return nil
+
+}
+
+func (c *ContractApi) activateContract(ctx context.Context, contractId, orgId pgtype.UUID, version int32) error {
+	rows, err := c.db.ActivateContract(ctx, sqlc.ActivateContractParams{
+		ID:             contractId,
+		CurrentVersion: version,
+		OrgID:          orgId,
+	})
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return fmt.Errorf("contract is not draft or does not exist")
+	}
+	return nil
+
+}
+
 func (c *ContractApi) initContractSnapshot(ctx context.Context, orgId, userId pgtype.UUID, args ContractParams, tableSnapshot *schema.TableSnapshot) (*InitContractModel, error) {
 	tx, err := c.transactions.Begin(ctx)
 	if err != nil {
@@ -136,9 +238,6 @@ func (c *ContractApi) initContractSnapshot(ctx context.Context, orgId, userId pg
 		Description: args.Description,
 	})
 	if err != nil {
-		return nil, err
-	}
-	if err = transactional.ContractColumn(ctx, contractVersion.ID, tableSnapshot); err != nil {
 		return nil, err
 	}
 

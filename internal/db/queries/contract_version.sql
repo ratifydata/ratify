@@ -13,6 +13,12 @@ INSERT INTO contract_versions (
 SELECT * FROM contract_versions
 WHERE id = $1;
 
+-- name: GetContractVersionByContractId :one
+SELECT * FROM contract_versions
+WHERE contract_id = $1
+ORDER BY version_number DESC
+LIMIT 1;
+
 -- name: GetContractVersionByNumber :one
 SELECT * FROM contract_versions
 WHERE contract_id = $1
