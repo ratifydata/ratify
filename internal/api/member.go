@@ -11,7 +11,7 @@ import (
 
 func addTeamMemberHandler(member *access.Member) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id, ok := memberPathID(w, r, "id")
+		id, ok := pathID(w, r, "id")
 		if !ok {
 			return
 		}
@@ -30,11 +30,11 @@ func addTeamMemberHandler(member *access.Member) http.HandlerFunc {
 }
 func removeTeamMemberHandler(member *access.Member) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		teamID, ok := memberPathID(w, r, "id")
+		teamID, ok := pathID(w, r, "id")
 		if !ok {
 			return
 		}
-		userID, ok := memberPathID(w, r, "userID")
+		userID, ok := pathID(w, r, "userID")
 		if !ok {
 			return
 		}
@@ -47,7 +47,7 @@ func removeTeamMemberHandler(member *access.Member) http.HandlerFunc {
 }
 func listTeamMembersHandler(member *access.Member) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id, ok := memberPathID(w, r, "id")
+		id, ok := pathID(w, r, "id")
 		if !ok {
 			return
 		}
@@ -59,7 +59,7 @@ func listTeamMembersHandler(member *access.Member) http.HandlerFunc {
 		writeJSONResponse(w, http.StatusOK, Response{Status: "ok", Body: members})
 	}
 }
-func memberPathID(w http.ResponseWriter, r *http.Request, key string) (pgtype.UUID, bool) {
+func pathID(w http.ResponseWriter, r *http.Request, key string) (pgtype.UUID, bool) {
 	value := chi.URLParam(r, key)
 	if value == "" {
 		value = r.PathValue(key)

@@ -32,7 +32,7 @@ WHERE connection_id = $1
 
 -- name: ListContractsByOrg :many
 SELECT * FROM contracts
-WHERE org_id = $1
+WHERE org_id = $1 AND  ($2::text = '' OR status = $2)
 ORDER BY created_at DESC;
 
 -- name: ListContractsByConnection :many

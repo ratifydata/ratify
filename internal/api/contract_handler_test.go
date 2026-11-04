@@ -102,7 +102,7 @@ func TestCreateContractHandler(t *testing.T) {
 			require.NoError(t, err)
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/contracts", bytes.NewReader(body)).WithContext(ctx))
-			stored, err := queries.ListContractsByOrg(t.Context(), org.ID)
+			stored, err := queries.ListContractsByOrg(t.Context(), sqlc.ListContractsByOrgParams{OrgID: org.ID})
 			require.NoError(t, err)
 			if name != "success" {
 				assertTeamResponse(t, rec, status, Response{Status: "error", Message: message})
@@ -250,4 +250,84 @@ func TestActivateContractHandler(t *testing.T) {
 			require.Equal(t, wantColumns, columns)
 		})
 	}
+}
+
+func TestGetContractInvalidID(t *testing.T) {
+	for _, id := range []string{"", "not-a-uuid"} {
+		t.Run(id, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/contracts/invalid", nil)
+			req.SetPathValue("id", id)
+			rec := httptest.NewRecorder()
+			getContract(nil).ServeHTTP(rec, req)
+			assertTeamResponse(t, rec, http.StatusBadRequest, Response{Status: "error", Message: "invalid id"})
+		})
+	}
+}
+
+func TestReadContractHandlers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires Postgres containers")
+	}
+	containers, err := testutil.InitializePostgresContainer()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		containers.Internal.Pool.Close()
+		require.NoError(t, containers.External.DB.Close())
+		testutil.TerminateContainer(containers.Internal.Container, containers.External.Container)
+	})
+	q := sqlc.New(containers.Internal.Pool)
+	org, err := q.CreateOrganization(t.Context(), sqlc.CreateOrganizationParams{Name: "Read contracts", Slug: uuid.NewString()})
+	require.NoError(t, err)
+	team, err := q.CreateTeam(t.Context(), sqlc.CreateTeamParams{OrgID: org.ID, Name: "Producers"})
+	require.NoError(t, err)
+	connection, err := q.CreateDatabaseConnection(t.Context(), sqlc.CreateDatabaseConnectionParams{
+		OrgID: org.ID, DisplayName: "Warehouse", Host: "localhost", Port: 5432,
+		DatabaseName: "warehouse", Username: "reader", PasswordEncrypted: []byte("encrypted"),
+		Nonce: []byte("nonce"), SslMode: "disable", Status: "active",
+	})
+	require.NoError(t, err)
+	ctx := context.WithValue(t.Context(), "OrgID", org.ID)
+	service := contract.New(containers.Internal.Pool, "0123456789abcdef0123456789abcdef")
+	draft, err := service.CreateContract(ctx, org.ID, contract.ContractParams{
+		ConnectionId: connection.ID, TeamId: team.ID, DisplayName: "Orders", SchemaName: "public", TableName: "orders",
+	})
+	require.NoError(t, err)
+
+	t.Run("get contract", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/contracts/"+draft.ID.String(), nil).WithContext(ctx)
+		req.SetPathValue("id", draft.ID.String())
+		rec := httptest.NewRecorder()
+		getContract(service).ServeHTTP(rec, req)
+		want := *draft
+		want.Versions = []contract.ContractVersionDetail{}
+		assertTeamResponse(t, rec, http.StatusOK, Response{Status: "ok", Body: want})
+	})
+	t.Run("missing contract", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/contracts/missing", nil).WithContext(ctx)
+		req.SetPathValue("id", uuid.NewString())
+		rec := httptest.NewRecorder()
+		getContract(service).ServeHTTP(rec, req)
+		require.Equal(t, http.StatusNotFound, rec.Code)
+	})
+	for _, tt := range []struct {
+		query string
+		want  []contract.ContractModel
+	}{
+		{query: "", want: []contract.ContractModel{*draft}},
+		{query: "?status=", want: []contract.ContractModel{*draft}},
+		{query: "?status=draft", want: []contract.ContractModel{*draft}},
+		{query: "?status=active", want: []contract.ContractModel{}},
+	} {
+		t.Run("list"+tt.query, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/contracts"+tt.query, nil).WithContext(ctx)
+			rec := httptest.NewRecorder()
+			listContracts(service).ServeHTTP(rec, req)
+			assertTeamResponse(t, rec, http.StatusOK, Response{Status: "ok", Body: tt.want})
+		})
+	}
+	t.Run("list missing organization", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		listContracts(service).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/contracts", nil))
+		assertTeamResponse(t, rec, http.StatusBadRequest, Response{Status: "error", Message: "OrgID missing from context"})
+	})
 }

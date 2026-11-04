@@ -241,12 +241,17 @@ func (q *Queries) ListContractsByConnection(ctx context.Context, connectionID pg
 
 const listContractsByOrg = `-- name: ListContractsByOrg :many
 SELECT id, org_id, connection_id, producer_team_id, display_name, schema_name, table_name, description, status, current_version, freshness_sla_hours, activated_at, deprecated_at, created_at, updated_at FROM contracts
-WHERE org_id = $1
+WHERE org_id = $1 AND  ($2::text = '' OR status = $2)
 ORDER BY created_at DESC
 `
 
-func (q *Queries) ListContractsByOrg(ctx context.Context, orgID pgtype.UUID) ([]Contract, error) {
-	rows, err := q.db.Query(ctx, listContractsByOrg, orgID)
+type ListContractsByOrgParams struct {
+	OrgID   pgtype.UUID
+	Column2 string
+}
+
+func (q *Queries) ListContractsByOrg(ctx context.Context, arg ListContractsByOrgParams) ([]Contract, error) {
+	rows, err := q.db.Query(ctx, listContractsByOrg, arg.OrgID, arg.Column2)
 	if err != nil {
 		return nil, err
 	}

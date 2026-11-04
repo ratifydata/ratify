@@ -40,3 +40,29 @@ func activateContract(c *contract.ContractApi) http.HandlerFunc {
 		writeJSONResponse(w, http.StatusCreated, Response{Status: "ok"})
 	}
 }
+
+func getContract(c *contract.ContractApi) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, valid := pathID(w, r, "id")
+		if !valid {
+			return
+		}
+		res, err := c.GetContract(r.Context(), id)
+		if err != nil {
+			writeHTTPError(w, err)
+			return
+		}
+		writeJSONResponse(w, http.StatusOK, Response{Status: "ok", Body: res})
+	}
+}
+
+func listContracts(c *contract.ContractApi) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		contracts, err := c.ListContracts(r.Context(), r.URL.Query().Get("status"))
+		if err != nil {
+			writeHTTPError(w, err)
+			return
+		}
+		writeJSONResponse(w, http.StatusOK, Response{Status: "ok", Body: contracts})
+	}
+}
