@@ -11,6 +11,26 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const activateContract = `-- name: ActivateContract :execrows
+UPDATE contracts
+SET activated_at = now(), status = 'active', current_version = $2, updated_at = now()
+WHERE id = $1 AND org_id = $3 AND status = 'draft'
+`
+
+type ActivateContractParams struct {
+	ID             pgtype.UUID
+	CurrentVersion int32
+	OrgID          pgtype.UUID
+}
+
+func (q *Queries) ActivateContract(ctx context.Context, arg ActivateContractParams) (int64, error) {
+	result, err := q.db.Exec(ctx, activateContract, arg.ID, arg.CurrentVersion, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createContract = `-- name: CreateContract :one
 INSERT INTO contracts (
     org_id,
@@ -112,11 +132,50 @@ func (q *Queries) GetActiveContractForTable(ctx context.Context, arg GetActiveCo
 
 const getContract = `-- name: GetContract :one
 SELECT id, org_id, connection_id, producer_team_id, display_name, schema_name, table_name, description, status, current_version, freshness_sla_hours, activated_at, deprecated_at, created_at, updated_at FROM contracts
-WHERE id = $1
+WHERE id = $1 and org_id = $2
 `
 
-func (q *Queries) GetContract(ctx context.Context, id pgtype.UUID) (Contract, error) {
-	row := q.db.QueryRow(ctx, getContract, id)
+type GetContractParams struct {
+	ID    pgtype.UUID
+	OrgID pgtype.UUID
+}
+
+func (q *Queries) GetContract(ctx context.Context, arg GetContractParams) (Contract, error) {
+	row := q.db.QueryRow(ctx, getContract, arg.ID, arg.OrgID)
+	var i Contract
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ConnectionID,
+		&i.ProducerTeamID,
+		&i.DisplayName,
+		&i.SchemaName,
+		&i.TableName,
+		&i.Description,
+		&i.Status,
+		&i.CurrentVersion,
+		&i.FreshnessSlaHours,
+		&i.ActivatedAt,
+		&i.DeprecatedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getContractForUpdate = `-- name: GetContractForUpdate :one
+SELECT id, org_id, connection_id, producer_team_id, display_name, schema_name, table_name, description, status, current_version, freshness_sla_hours, activated_at, deprecated_at, created_at, updated_at FROM contracts
+WHERE id = $1 AND org_id = $2
+FOR UPDATE
+`
+
+type GetContractForUpdateParams struct {
+	ID    pgtype.UUID
+	OrgID pgtype.UUID
+}
+
+func (q *Queries) GetContractForUpdate(ctx context.Context, arg GetContractForUpdateParams) (Contract, error) {
+	row := q.db.QueryRow(ctx, getContractForUpdate, arg.ID, arg.OrgID)
 	var i Contract
 	err := row.Scan(
 		&i.ID,
@@ -182,12 +241,17 @@ func (q *Queries) ListContractsByConnection(ctx context.Context, connectionID pg
 
 const listContractsByOrg = `-- name: ListContractsByOrg :many
 SELECT id, org_id, connection_id, producer_team_id, display_name, schema_name, table_name, description, status, current_version, freshness_sla_hours, activated_at, deprecated_at, created_at, updated_at FROM contracts
-WHERE org_id = $1
+WHERE org_id = $1 AND  ($2::text = '' OR status = $2)
 ORDER BY created_at DESC
 `
 
-func (q *Queries) ListContractsByOrg(ctx context.Context, orgID pgtype.UUID) ([]Contract, error) {
-	rows, err := q.db.Query(ctx, listContractsByOrg, orgID)
+type ListContractsByOrgParams struct {
+	OrgID   pgtype.UUID
+	Column2 string
+}
+
+func (q *Queries) ListContractsByOrg(ctx context.Context, arg ListContractsByOrgParams) ([]Contract, error) {
+	rows, err := q.db.Query(ctx, listContractsByOrg, arg.OrgID, arg.Column2)
 	if err != nil {
 		return nil, err
 	}

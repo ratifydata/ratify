@@ -3,10 +3,12 @@ package contract
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/ratifydata/ratify/internal/apperrors"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
@@ -64,6 +66,12 @@ type ContractModel struct {
 	Description       pgtype.Text
 	Status            string
 	FreshnessSlaHours pgtype.Int4
+	CurrentVersion    int32
+	Versions          []ContractVersionDetail `json:"versions"`
+}
+
+type ActivateContract struct {
+	ID pgtype.UUID `json:"id"`
 }
 
 type ContractVersionModel struct {
@@ -72,6 +80,12 @@ type ContractVersionModel struct {
 	Version     int32       `json:"version"`
 	User        pgtype.UUID `json:"user"`
 	Description pgtype.Text `json:"description"`
+}
+
+// ContractVersionDetail includes the persisted columns belonging to a version.
+type ContractVersionDetail struct {
+	ContractVersionModel
+	Columns []ContractColumn `json:"columns"`
 }
 
 type InitContractModel struct {
@@ -110,6 +124,104 @@ func (c *ContractApi) InitContract(ctx context.Context, args ContractParams) (*I
 	return c.initContractSnapshot(ctx, orgId, userId, args, tableSnapshot)
 }
 
+func (c *ContractApi) ActivateContract(ctx context.Context, args ActivateContract) error {
+	orgId, err := util.ValidateOrgId(ctx)
+	if err != nil {
+		return err
+	}
+
+	userId, err := util.ValidateUserId(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Lock the draft and persist activation and any new version atomically.
+	tx, err := c.transactions.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		defer cancel()
+		_ = tx.Rollback(rollbackCtx)
+	}()
+
+	transactional := &ContractApi{
+		db:         c.db.WithTx(tx),
+		inspection: c.inspection,
+	}
+
+	contract, err := transactional.db.GetContractForUpdate(ctx, sqlc.GetContractForUpdateParams{
+		ID:    args.ID,
+		OrgID: orgId,
+	})
+	if err != nil {
+		return err
+	}
+	if contract.Status != "draft" {
+		return fmt.Errorf("operation cannot be activated. contract is draft")
+	}
+
+	//Get ConnectionID to ValidateSchema on Activation
+	tableSnapshot, err := transactional.inspection.ContractValidation(ctx, orgId, contract.ConnectionID, contract.SchemaName, contract.TableName)
+	if err != nil {
+		//Error fetching live schema
+		return err
+	}
+	//Get Draft contract version
+	currentVersion, err := transactional.db.GetContractVersionByContractId(ctx, args.ID)
+	if err != nil {
+		return err
+	}
+
+	versionNumber := currentVersion.VersionNumber
+	//Compare Schema At the point of Activation,
+	schemaComparison, err := ValidateContractAgainstSchema(currentVersion.SchemaSnapshot, tableSnapshot)
+	if err != nil {
+		return err
+	}
+	// Unchanged schemas retain their version without inserting columns.
+	if len(schemaComparison) > 0 {
+		versionNumber++
+		contractVersion, err := transactional.ContractVersion(ctx, ContractVersion{
+			ContractId: args.ID,
+			Version:    versionNumber,
+			User:       userId,
+			Snapshot:   tableSnapshot,
+		})
+		if err != nil {
+			return err
+		}
+		if err := transactional.ContractColumn(ctx, contractVersion.ID, tableSnapshot); err != nil {
+			return err
+		}
+	}
+	if err := transactional.activateContract(ctx, args.ID, orgId, versionNumber); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit contract activation: %w", err)
+	}
+	return nil
+
+}
+
+func (c *ContractApi) activateContract(ctx context.Context, contractId, orgId pgtype.UUID, version int32) error {
+	rows, err := c.db.ActivateContract(ctx, sqlc.ActivateContractParams{
+		ID:             contractId,
+		CurrentVersion: version,
+		OrgID:          orgId,
+	})
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return fmt.Errorf("contract is not draft or does not exist")
+	}
+	return nil
+
+}
+
 func (c *ContractApi) initContractSnapshot(ctx context.Context, orgId, userId pgtype.UUID, args ContractParams, tableSnapshot *schema.TableSnapshot) (*InitContractModel, error) {
 	tx, err := c.transactions.Begin(ctx)
 	if err != nil {
@@ -136,9 +248,6 @@ func (c *ContractApi) initContractSnapshot(ctx context.Context, orgId, userId pg
 		Description: args.Description,
 	})
 	if err != nil {
-		return nil, err
-	}
-	if err = transactional.ContractColumn(ctx, contractVersion.ID, tableSnapshot); err != nil {
 		return nil, err
 	}
 
@@ -187,6 +296,7 @@ func (c *ContractApi) CreateContract(ctx context.Context, orgId pgtype.UUID, arg
 		Description:       contract.Description,
 		Status:            contract.Status,
 		FreshnessSlaHours: contract.FreshnessSlaHours,
+		CurrentVersion:    contract.CurrentVersion,
 	}, nil
 }
 
@@ -234,5 +344,101 @@ func (c *ContractApi) ContractColumn(ctx context.Context, versionId pgtype.UUID,
 		return err
 	}
 	return nil
+
+}
+
+func (c *ContractApi) GetContract(ctx context.Context, contractID pgtype.UUID) (*ContractModel, error) {
+	orgId, err := util.ValidateOrgId(ctx)
+	if err != nil {
+		return nil, err
+	}
+	contractModel, err := c.db.GetContract(ctx, sqlc.GetContractParams{
+		OrgID: orgId,
+		ID:    contractID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, &apperrors.NotFoundError{Err: err}
+		}
+		return nil, err
+	}
+	versions, err := c.db.ListContractVersions(ctx, contractModel.ID)
+	if err != nil {
+
+		return nil, fmt.Errorf("list contract versions: %w", err)
+	}
+	result := &ContractModel{
+		ID:                contractModel.ID,
+		ConnectionID:      contractModel.ConnectionID,
+		ProducerTeamID:    contractModel.ProducerTeamID,
+		DisplayName:       contractModel.DisplayName,
+		SchemaName:        contractModel.SchemaName,
+		TableName:         contractModel.TableName,
+		Description:       contractModel.Description,
+		Status:            contractModel.Status,
+		FreshnessSlaHours: contractModel.FreshnessSlaHours,
+		CurrentVersion:    contractModel.CurrentVersion,
+		Versions:          make([]ContractVersionDetail, 0, len(versions)),
+	}
+	for _, version := range versions {
+		columns, err := c.db.ListContractColumnsByVersion(ctx, version.ID)
+		if err != nil {
+			return nil, fmt.Errorf("list columns for version %d: %w", version.VersionNumber, err)
+		}
+		detail := ContractVersionDetail{
+			ContractVersionModel: ContractVersionModel{
+				ID:          version.ID,
+				ContractId:  version.ContractID,
+				Version:     version.VersionNumber,
+				User:        version.CreatedBy,
+				Description: version.ChangeSummary,
+			},
+			Columns: make([]ContractColumn, 0, len(columns)),
+		}
+		for _, column := range columns {
+			detail.Columns = append(detail.Columns, ContractColumn{
+				ContractVersionId: column.ContractVersionID,
+				ColumnName:        column.ColumnName,
+				DataType:          column.DataType,
+				IsNullable:        column.IsNullable,
+				IsPrimaryKey:      column.IsPrimaryKey,
+				Description:       column.Description,
+				Constraints:       column.Constraints,
+				Position:          column.OrdinalPosition,
+			})
+		}
+		result.Versions = append(result.Versions, detail)
+	}
+	return result, nil
+}
+
+func (c *ContractApi) ListContracts(ctx context.Context, status string) ([]ContractModel, error) {
+	orgId, err := util.ValidateOrgId(ctx)
+	if err != nil {
+		return nil, &apperrors.BadRequestError{Err: err}
+	}
+	contracts, err := c.db.ListContractsByOrg(ctx, sqlc.ListContractsByOrgParams{
+		OrgID:   orgId,
+		Column2: status,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list contracts: %w", err)
+	}
+	result := make([]ContractModel, 0, len(contracts))
+	for _, contract := range contracts {
+		result = append(result, ContractModel{
+			ID:                contract.ID,
+			ConnectionID:      contract.ConnectionID,
+			ProducerTeamID:    contract.ProducerTeamID,
+			DisplayName:       contract.DisplayName,
+			SchemaName:        contract.SchemaName,
+			TableName:         contract.TableName,
+			Description:       contract.Description,
+			Status:            contract.Status,
+			FreshnessSlaHours: contract.FreshnessSlaHours,
+			CurrentVersion:    contract.CurrentVersion,
+		})
+	}
+	return result, nil
 
 }

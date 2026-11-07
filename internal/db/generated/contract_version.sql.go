@@ -72,6 +72,28 @@ func (q *Queries) GetContractVersion(ctx context.Context, id pgtype.UUID) (Contr
 	return i, err
 }
 
+const getContractVersionByContractId = `-- name: GetContractVersionByContractId :one
+SELECT id, contract_id, created_by, version_number, schema_snapshot, change_summary, created_at FROM contract_versions
+WHERE contract_id = $1
+ORDER BY version_number DESC
+LIMIT 1
+`
+
+func (q *Queries) GetContractVersionByContractId(ctx context.Context, contractID pgtype.UUID) (ContractVersion, error) {
+	row := q.db.QueryRow(ctx, getContractVersionByContractId, contractID)
+	var i ContractVersion
+	err := row.Scan(
+		&i.ID,
+		&i.ContractID,
+		&i.CreatedBy,
+		&i.VersionNumber,
+		&i.SchemaSnapshot,
+		&i.ChangeSummary,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getContractVersionByNumber = `-- name: GetContractVersionByNumber :one
 SELECT id, contract_id, created_by, version_number, schema_snapshot, change_summary, created_at FROM contract_versions
 WHERE contract_id = $1

@@ -47,6 +47,9 @@ func NewRouter(pool *db.Pool, cfg *config.Config) *chi.Mux {
 		r.Get("/teams/{id}/members", listTeamMembersHandler(members))
 		r.Delete("/teams/{id}/members/{userID}", removeTeamMemberHandler(members))
 		r.Post("/contracts", createContract(contractApi))
+		r.Post("/contracts/{id}/activate", activateContract(contractApi))
+		r.Get("/contracts/{id}", getContract(contractApi))
+		r.Get("/contracts", listContracts(contractApi))
 	}
 	r.Route("/api/cli/v1", func(r chi.Router) {
 		r.Use(apiMiddleware.ApiKeyAuthHandler(apiKey))
