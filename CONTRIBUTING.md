@@ -18,6 +18,7 @@ Read it fully before opening an issue or a pull request.
 - [How we work](#how-we-work)
 - [Branch naming](#branch-naming)
 - [Writing good commits](#writing-good-commits)
+- [License and DCO sign-off](#license-and-dco-sign-off)
 - [Pull requests](#pull-requests)
 - [Code standards](#code-standards)
 - [Testing expectations](#testing-expectations)
@@ -54,7 +55,7 @@ you have in mind. The problem statement is what helps us understand
 whether there is a better approach we had not considered.
 
 **Improve documentation.** If something in the docs is unclear,
-incomplete, or wrong - fix it and open a PR. Documentation contributions
+incomplete, or wrong, fix it and open a PR. Documentation contributions
 are always welcome and are a good first contribution for anyone
 new to the codebase.
 
@@ -93,49 +94,43 @@ in progress.
 
 | Tool | Minimum version | Install | Verify |
 |---|---|---|---|
-| Go | 1.22 | [go.dev/dl](https://go.dev/dl) | `go version` |
+| Go | 1.25.13 | [go.dev/dl](https://go.dev/dl) | `go version` |
 | Node.js | 20 | [nodejs.org](https://nodejs.org) | `node --version` |
 | Docker Desktop | Latest | [docker.com](https://www.docker.com/products/docker-desktop) | `docker --version` |
 | Git | Any | Usually pre-installed | `git --version` |
 | golangci-lint | Latest | [golangci-lint.run](https://golangci-lint.run/usage/install) | `golangci-lint --version` |
 | sqlc | Latest | [docs.sqlc.dev](https://docs.sqlc.dev/en/latest/overview/install.html) | `sqlc version` |
 
-Install them in order. Do not skip the version checks - the project
+Install them in order. Do not skip the version checks. The project
 uses features from specific versions and older releases will produce
 confusing errors.
 
 ### Getting the application running
 
-
 ### 1. Clone repository
+
 ```bash
-# Clone the repository
 git clone https://github.com/ratifydata/ratify.git
 cd ratify
-
-# Copy the environment file
-# The defaults in .env.example work for local development
 cp .env.example .env
 ```
-### 2. Configure Encryption Key
 
-Generate a 256-bit encryption key
+The defaults in `.env.example` work for local development.
+
+### 2. Configure encryption key
+
 ```bash
 openssl rand -hex 32
 ```
-Store the generated key in the .env file.
 
-**The Encryption Key is only generated once.
-Do not generate a new key on restarting or upgrading the application.**
- 
-### 3. Start Application
+Store the output in `.env`. Generate this once. Do not regenerate it
+when restarting or upgrading the application.
+
+### 3. Start the application
 
 ```bash
-# Start the application and its database
 docker compose up
 ```
-
-
 
 Wait about 30 seconds. When you see log output from both the `app`
 and `postgres` containers without errors, the application is running.
@@ -169,12 +164,11 @@ The frontend is at `http://localhost:5173` and hot-reloads as you make changes.
 ### Stopping everything
 
 ```bash
-# Stop containers, keep data
 docker compose down
-
-# Stop containers and remove all data (clean slate)
 docker compose down -v
 ```
+
+The first keeps your data. The second wipes it.
 
 ---
 
@@ -186,8 +180,9 @@ A few things that are non-negotiable regardless of how small the change:
 pull request. The branch protection rule enforces this.
 
 **The CI pipeline is the gatekeeper.** A pull request cannot be
-merged until all CI checks pass; lint, tests, coverage, and security
-scan. If CI is red, that is the highest priority. Everything else waits.
+merged until all CI checks pass: lint, tests, coverage, security
+scan, and the DCO sign-off check. If CI is red, that is the highest
+priority. Everything else waits.
 
 **Tests are not optional.** If you add behaviour, you add a test for it.
 If you fix a bug, you add a test that would have caught it. PRs without
@@ -196,6 +191,9 @@ appropriate test coverage will not be merged.
 **One PR, one thing.** A pull request should do one coherent thing.
 Mixing a feature and a refactor in the same PR makes it harder to
 review and harder to revert cleanly if something goes wrong.
+
+**Every commit is signed off.** See
+[License and DCO sign-off](#license-and-dco-sign-off) below.
 
 ---
 
@@ -215,7 +213,7 @@ Every branch name follows this pattern: `type/short-description`
 
 Rules:
 - All lowercase, hyphens between words
-- Short enough to read at a glance - `feat/consumer-response-tokens`
+- Short enough to read at a glance: `feat/consumer-response-tokens`
   not `feat/add-the-new-consumer-response-token-generation-endpoint`
 - Always branch from the latest `main`:
 
@@ -258,11 +256,80 @@ Added a check for existing open breaches on the same contract
 and column before inserting a new record.
 
 Closes #67
+
+Signed-off-by: Your Name <your.email@example.com>
 ```
+
+The `Signed-off-by` line is added automatically with `git commit -s`.
+See the next section.
 
 This history is permanent. Write for the person who will read this
 commit message six months from now trying to understand why the
 codebase looks the way it does.
+
+---
+
+## License and DCO sign-off
+
+Ratify is licensed under the **GNU Affero General Public License v3.0
+(AGPLv3)**. By contributing, you agree that your contributions are
+licensed under the same license. The full text is in [LICENSE](LICENSE).
+
+We use the **Developer Certificate of Origin (DCO)** instead of a
+contributor license agreement. No paperwork to sign. By adding a
+sign-off line to a commit, you certify that you wrote the code or
+have the right to submit it under AGPLv3. The full text is in [DCO](DCO).
+
+### Signing off
+
+Add `-s` to every commit:
+
+```bash
+git commit -s -m "feat: add consumer response token expiry check"
+```
+
+Git takes the name and email from your git config. Check them before
+your first commit:
+
+```bash
+git config user.name
+git config user.email
+```
+
+If either is blank or wrong:
+
+```bash
+git config --global user.name "Your Full Name"
+git config --global user.email "your.email@example.com"
+```
+
+### If you forgot to sign off
+
+For the most recent commit:
+
+```bash
+git commit --amend -s --no-edit
+git push --force-with-lease
+```
+
+For several commits in your branch:
+
+```bash
+git fetch origin
+git rebase --signoff origin/main
+git push --force-with-lease
+```
+
+### How it is enforced
+
+Every pull request runs the DCO Sign-off Check workflow. If any
+commit is missing a `Signed-off-by` line, the check fails and the
+PR cannot be merged. Dependabot PRs are exempt.
+
+### Trademark and open core
+
+The name Ratify is a trademark of Ratify Data. See
+[TRADEMARK.md](TRADEMARK.md) and [OPEN-CORE-POLICY.md](OPEN-CORE-POLICY.md).
 
 ---
 
@@ -283,7 +350,7 @@ Link to the related issue if one exists.
 
 ## How to test it
 Specific steps a reviewer can follow to verify this works.
-Do not write "run the tests" — write the actual steps.
+Do not write "run the tests". Write the actual steps.
 
 ## Checklist
 - [ ] Tests added or updated
@@ -291,6 +358,7 @@ Do not write "run the tests" — write the actual steps.
 - [ ] go test ./... passes locally
 - [ ] Documentation updated where behaviour changed
 - [ ] No hardcoded credentials or secrets
+- [ ] All commits are signed off (git commit -s)
 ```
 
 If your PR closes an issue, add `Closes #[number]` in the description.
@@ -314,6 +382,7 @@ Reviews look at:
 These will always block a merge, without exception:
 - CI is failing (lint, tests, or security scan)
 - Test coverage dropped below the minimum threshold
+- A commit is missing its `Signed-off-by` line
 - A hardcoded credential or secret appears anywhere in the diff
 - The PR does more than one unrelated thing
 - A significant feature was built without a prior issue discussion
@@ -326,22 +395,18 @@ These will always block a merge, without exception:
 
 Ratify is written in idiomatic Go. If you are new to Go, read
 [Effective Go](https://go.dev/doc/effective_go) before contributing
-backend code, it is short and explains the reasoning behind
-patterns you will encounter throughout the codebase.
+backend code. It is short and explains the reasoning behind patterns
+you will encounter throughout the codebase.
 
 **Errors are values. Handle them.**
 Never discard an error with `_`. If an error genuinely cannot
 happen in a specific context, add a comment explaining why.
 
 ```go
-// Do this
 result, err := doSomething()
 if err != nil {
     return fmt.Errorf("doing something: %w", err)
 }
-
-// Never this
-result, _ := doSomething()
 ```
 
 **Wrap errors with context.**
@@ -353,7 +418,7 @@ return fmt.Errorf("creating proposal: %w", err)
 ```
 
 **Context comes first.**
-Any function that performs I/O - database, network, file - takes
+Any function that performs I/O (database, network, file) takes
 `context.Context` as its first argument:
 
 ```go
@@ -377,7 +442,7 @@ func (s *ProposalService) CreateProposal(ctx context.Context, input CreatePropos
 
 **No `panic` in production code paths.**
 Return errors. Reserve `panic` for programmer errors you genuinely
-did not expect, and not for runtime conditions.
+did not expect, not for runtime conditions.
 
 Run before every push:
 
@@ -421,7 +486,7 @@ migrations/
 ```
 
 Rules:
-- Never modify an existing migration - always create a new one
+- Never modify an existing migration. Always create a new one
 - Every `.down.sql` must cleanly reverse its `.up.sql`
 - Column and table names use lowercase with underscores
 - Every timestamp column uses `TIMESTAMPTZ`, not `TIMESTAMP`
@@ -431,13 +496,13 @@ Rules:
 ### General
 
 - Configuration values come from environment variables. Nothing
-  is hardcoded; not ports, not database names, not timeouts.
+  is hardcoded: not ports, not database names, not timeouts.
 - No credentials or secrets appear in code, comments, or test files.
   If you need a placeholder credential in a test, use something
   obviously fake like `test-secret-not-real`.
 - Delete commented-out code before opening a PR. If code is
-  commented out, either remove it or explain why it exists -
-  do not leave dead code for future readers to puzzle over.
+  commented out, either remove it or explain why it exists.
+  Do not leave dead code for future readers to puzzle over.
 
 ---
 
@@ -465,7 +530,7 @@ file named `integration_test.go`.
 **Coverage:**
 The CI pipeline enforces a minimum test coverage threshold.
 New code that brings coverage below this threshold blocks the merge.
-Write tests as you write code, retrofitting tests onto a large
+Write tests as you write code. Retrofitting tests onto a large
 body of untested code is painful for everyone.
 
 ---

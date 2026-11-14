@@ -11,7 +11,7 @@
 **The missing workflow layer between data producers and consumers.**
 
 [![CI](https://github.com/ratifydata/ratify/actions/workflows/ci.yml/badge.svg)](https://github.com/ratifydata/ratify/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/ratifydata/ratify/blob/main/LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://github.com/ratifydata/ratify/blob/main/LICENSE)
 [![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8.svg?logo=go&logoColor=white)](https://golang.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16+-336791.svg?logo=postgresql&logoColor=white)](https://postgresql.org)
 [![Discord](https://img.shields.io/discord/1504808765768073309?label=discord&logo=discord&logoColor=white&color=5865F2)](https://discord.gg/RVU3cdRs9z)
@@ -435,7 +435,11 @@ No existing tool addresses the workflow and negotiation layer required for data 
 
 ## License
 
-[MIT License](LICENSE) - free to use, modify, and distribute.
+Ratify is licensed under the [AGPLv3](./LICENSE). If you run a modified version as a network service, you must make the modified source code available to users of that service.
+
+---
+
+Ratify™ is a trademark of Ratify Data. See [TRADEMARK.md](./TRADEMARK.md) for details.
 
 ---
 
