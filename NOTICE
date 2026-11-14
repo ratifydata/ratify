@@ -1,0 +1,43 @@
+Ratify™
+Copyright (C) 2026 Ratify Data. All rights reserved.
+
+This product is licensed under the GNU Affero General Public License v3.0.
+See the LICENSE file in the root of this repository for the full license text.
+A copy is also available at: https://www.gnu.org/licenses/agpl-3.0.html
+
+-------------------------------------------------------------------------------
+
+TRADEMARK NOTICE
+
+Ratify™ is a trademark of Ratify Data.
+
+The name "Ratify" and the Ratify logo (where applicable) are trademarks of
+Ratify Data and may not be used to endorse or promote products or services
+derived from this software without prior written permission from Ratify Data.
+
+Use of the Ratify name to identify forks, derivative works, or competing
+products is not permitted without explicit written consent.
+See TRADEMARK.md for the full policy.
+
+For trademark inquiries, contact: info@ratifydata.com
+
+-------------------------------------------------------------------------------
+
+THIRD-PARTY SOFTWARE
+
+This product includes open-source software from third parties, each under its
+own license. The authoritative list is the dependency manifests in this
+repository (go.mod, go.sum, frontend/package.json and its lockfile), and each
+dependency's own license file.
+
+To generate a full license report:
+  Go:        go install github.com/google/go-licenses@latest
+             go-licenses report ./... --template <your-template>
+  Frontend:  npx license-checker --summary   (run inside /frontend)
+
+-------------------------------------------------------------------------------
+
+CONTACT
+
+Ratify Data
+info@ratifydata.com
