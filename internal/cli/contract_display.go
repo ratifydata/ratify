@@ -10,14 +10,20 @@ import (
 
 func displayContract(cmd *cobra.Command, item *contract.ContractModel) error {
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-	// Buffer the complete view so write failures are returned by Flush.
+	// Keep the first formatting/write error and stop writing after it.
+	var writeErr error
+	write := func(format string, args ...any) {
+		if writeErr == nil {
+			_, writeErr = fmt.Fprintf(w, format, args...)
+		}
+	}
 	sla := "Not set"
 	if item.FreshnessSlaHours.Valid {
 		sla = fmt.Sprintf("%d hours", item.FreshnessSlaHours.Int32)
 	}
-	fmt.Fprintf(w, "Contract:\t%s\nID:\t%s\nConnection:\t%s\nTable:\t%s.%s\nStatus:\t%s\nCurrent version:\t%d\nDescription:\t%s\nFreshness SLA:\t%s\n",
+	write("Contract:\t%s\nID:\t%s\nConnection:\t%s\nTable:\t%s.%s\nStatus:\t%s\nCurrent version:\t%d\nDescription:\t%s\nFreshness SLA:\t%s\n",
 		item.DisplayName, item.ID.String(), item.ConnectionID.String(), item.SchemaName, item.TableName, item.Status, item.CurrentVersion, item.Description.String, sla)
-	fmt.Fprintf(w, "\nColumns (version %d)\n", item.CurrentVersion)
+	write("\nColumns (version %d)\n", item.CurrentVersion)
 	var columns []contract.ContractColumn
 	for _, version := range item.Versions {
 		if version.Version == item.CurrentVersion {
@@ -26,21 +32,24 @@ func displayContract(cmd *cobra.Command, item *contract.ContractModel) error {
 		}
 	}
 	if len(columns) == 0 {
-		fmt.Fprintln(w, "No columns recorded for the current version.")
+		write("No columns recorded for the current version.\n")
 	} else {
-		fmt.Fprintln(w, "POSITION\tNAME\tTYPE\tNULLABLE\tPRIMARY KEY\tDESCRIPTION\tCONSTRAINTS")
+		write("POSITION\tNAME\tTYPE\tNULLABLE\tPRIMARY KEY\tDESCRIPTION\tCONSTRAINTS\n")
 		for _, column := range columns {
-			fmt.Fprintf(w, "%d\t%s\t%s\t%t\t%t\t%s\t%s\n", column.Position, column.ColumnName, column.DataType, column.IsNullable, column.IsPrimaryKey, column.Description.String, column.Constraints)
+			write("%d\t%s\t%s\t%t\t%t\t%s\t%s\n", column.Position, column.ColumnName, column.DataType, column.IsNullable, column.IsPrimaryKey, column.Description.String, column.Constraints)
 		}
 	}
-	fmt.Fprintln(w, "\nVersion history")
+	write("\nVersion history\n")
 	if len(item.Versions) == 0 {
-		fmt.Fprintln(w, "No versions.")
+		write("No versions.\n")
 	} else {
-		fmt.Fprintln(w, "VERSION\tID\tCREATED BY\tCHANGE SUMMARY\tCOLUMNS")
+		write("VERSION\tID\tCREATED BY\tCHANGE SUMMARY\tCOLUMNS\n")
 		for _, version := range item.Versions {
-			fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%d\n", version.Version, version.ID.String(), version.User.String(), version.Description.String, len(version.Columns))
+			write("%d\t%s\t%s\t%s\t%d\n", version.Version, version.ID.String(), version.User.String(), version.Description.String, len(version.Columns))
 		}
+	}
+	if writeErr != nil {
+		return writeErr
 	}
 	return w.Flush()
 }
