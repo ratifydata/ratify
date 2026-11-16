@@ -456,3 +456,30 @@ func (c *ContractApi) ListContracts(ctx context.Context, status string) ([]Contr
 	return result, nil
 
 }
+
+// DeprecateContract retires an active contract without changing its version history.
+func (c *ContractApi) DeprecateContract(ctx context.Context, id pgtype.UUID) error {
+	orgID, err := util.ValidateOrgId(ctx)
+	if err != nil {
+		return &apperrors.BadRequestError{Err: err}
+	}
+
+	if !id.Valid {
+		return &apperrors.BadRequestError{Err: fmt.Errorf("invalid contract id")}
+	}
+	// The status predicate makes the transition atomic even with concurrent requests.
+	rows, err := c.db.DeprecateContract(ctx, sqlc.DeprecateContractParams{ID: id, OrgID: orgID})
+	if err != nil {
+		return fmt.Errorf("deprecate contract: %w", err)
+	}
+	if rows == 1 {
+		return nil
+	}
+	if _, err := c.db.GetContract(ctx, sqlc.GetContractParams{ID: id, OrgID: orgID}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return &apperrors.NotFoundError{Err: fmt.Errorf("contract not found")}
+		}
+		return fmt.Errorf("get contract: %w", err)
+	}
+	return &apperrors.ConflictError{Err: fmt.Errorf("only active contracts can be deprecated")}
+}

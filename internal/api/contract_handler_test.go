@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -27,6 +28,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/ratifydata/ratify/internal/apperrors"
 	"github.com/ratifydata/ratify/internal/auth"
 	"github.com/ratifydata/ratify/internal/contract"
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
@@ -344,4 +346,57 @@ func TestReadContractHandlers(t *testing.T) {
 		listContracts(service).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/contracts", nil))
 		assertTeamResponse(t, rec, http.StatusBadRequest, Response{Status: "error", Message: "OrgID missing from context"})
 	})
+}
+
+type stubContractDeprecator struct {
+	id     pgtype.UUID
+	err    error
+	called bool
+}
+
+func (s *stubContractDeprecator) DeprecateContract(_ context.Context, id pgtype.UUID) error {
+	s.called = true
+	s.id = id
+	return s.err
+}
+
+func TestDeprecateContractHandler(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{"success", nil, http.StatusOK},
+		{"not found", &apperrors.NotFoundError{Err: errors.New("contract not found")}, http.StatusNotFound},
+		{"conflict", &apperrors.ConflictError{Err: errors.New("only active contracts can be deprecated")}, http.StatusConflict},
+		{"bad request", &apperrors.BadRequestError{Err: errors.New("invalid context")}, http.StatusBadRequest},
+		{"internal", errors.New("database credentials"), http.StatusInternalServerError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := &stubContractDeprecator{err: tc.err}
+			id := uuid.NewString()
+			req := httptest.NewRequest(http.MethodPatch, "/api/v1/contracts/"+id+"/deprecate", nil)
+			req.SetPathValue("id", id)
+			rec := httptest.NewRecorder()
+			deprecateContract(service).ServeHTTP(rec, req)
+			require.Equal(t, tc.status, rec.Code)
+			require.True(t, service.called)
+			require.Equal(t, id, service.id.String())
+			if tc.status == http.StatusInternalServerError {
+				require.NotContains(t, rec.Body.String(), "credentials")
+			}
+		})
+	}
+}
+
+func TestDeprecateContractInvalidID(t *testing.T) {
+	for _, id := range []string{"", "invalid"} {
+		service := &stubContractDeprecator{}
+		req := httptest.NewRequest(http.MethodPatch, "/contracts/invalid/deprecate", nil)
+		req.SetPathValue("id", id)
+		rec := httptest.NewRecorder()
+		deprecateContract(service).ServeHTTP(rec, req)
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+		require.False(t, service.called)
+	}
 }

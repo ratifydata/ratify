@@ -93,6 +93,25 @@ func (q *Queries) CreateContract(ctx context.Context, arg CreateContractParams) 
 	return i, err
 }
 
+const deprecateContract = `-- name: DeprecateContract :execrows
+UPDATE contracts
+SET status = 'deprecated', deprecated_at = now(), updated_at = now()
+WHERE id = $1 AND org_id = $2 AND status = 'active'
+`
+
+type DeprecateContractParams struct {
+	ID    pgtype.UUID
+	OrgID pgtype.UUID
+}
+
+func (q *Queries) DeprecateContract(ctx context.Context, arg DeprecateContractParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deprecateContract, arg.ID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getActiveContractForTable = `-- name: GetActiveContractForTable :one
 SELECT id, org_id, connection_id, producer_team_id, display_name, schema_name, table_name, description, status, current_version, freshness_sla_hours, activated_at, deprecated_at, created_at, updated_at FROM contracts
 WHERE connection_id = $1
