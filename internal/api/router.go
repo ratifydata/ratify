@@ -62,6 +62,7 @@ func NewRouter(pool *db.Pool, cfg *config.Config) *chi.Mux {
 		r.Delete("/teams/{id}/members/{userID}", removeTeamMemberHandler(members))
 		r.Post("/contracts", createContract(contractApi))
 		r.Post("/contracts/{id}/activate", activateContract(contractApi))
+		r.Patch("/contracts/{id}/deprecate", deprecateContract(contractApi))
 		r.Get("/contracts/{id}", getContract(contractApi))
 		r.Get("/contracts", listContracts(contractApi))
 	}
