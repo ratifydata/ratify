@@ -76,7 +76,7 @@ func DiffSchema(prior, current *schema.TableSnapshot) ([]SnapshotConflict, error
 
 func indexSnapshot(snapshot *schema.TableSnapshot) (map[string]schema.TableData, error) {
 	if snapshot == nil {
-		return nil, fmt.Errorf(" snapshot is nil")
+		return nil, fmt.Errorf("snapshot is nil")
 	}
 	columns := make(map[string]schema.TableData, len(snapshot.Columns))
 	for _, column := range snapshot.Columns {
