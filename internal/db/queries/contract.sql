@@ -16,7 +16,12 @@ INSERT INTO contracts (
 
 -- name: GetContract :one
 SELECT * FROM contracts
-WHERE id = $1;
+WHERE id = $1 and org_id = $2;
+
+-- name: GetContractForUpdate :one
+SELECT * FROM contracts
+WHERE id = $1 AND org_id = $2
+FOR UPDATE;
 
 -- name: GetActiveContractForTable :one
 SELECT * FROM contracts
@@ -57,3 +62,7 @@ SET
 WHERE id = $1
 RETURNING *;
 
+-- name: ActivateContract :execrows
+UPDATE contracts
+SET activated_at = now(), status = 'active', current_version = $2, updated_at = now()
+WHERE id = $1 AND org_id = $3 AND status = 'draft';
