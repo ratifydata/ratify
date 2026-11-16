@@ -80,3 +80,17 @@ func listContracts(c *contract.ContractApi) http.HandlerFunc {
 		writeJSONResponse(w, http.StatusOK, Response{Status: "ok", Body: contracts})
 	}
 }
+
+func deprecateContract(c *contract.ContractApi) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, valid := pathID(w, r, "id")
+		if !valid {
+			return
+		}
+		if err := c.DeprecateContract(r.Context(), id); err != nil {
+			writeHTTPError(w, err)
+			return
+		}
+		writeJSONResponse(w, http.StatusOK, Response{Status: "ok"})
+	}
+}
