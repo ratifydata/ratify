@@ -28,6 +28,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/ratifydata/ratify/internal/apperrors"
 	"github.com/ratifydata/ratify/internal/auth"
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
 	"github.com/ratifydata/ratify/internal/schema"
@@ -456,4 +457,61 @@ func TestListContractsCanceledRequest(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	require.ErrorContains(t, err, "list contracts:")
 	require.Nil(t, result)
+}
+
+func TestDeprecateContract(t *testing.T) {
+	for _, state := range []string{"active", "draft", "deprecated", "foreign organization", "missing", "missing organization", "missing user", "canceled"} {
+		t.Run(state, func(t *testing.T) {
+			f := newContractFixture(t)
+			created, err := f.api.initContractSnapshot(f.ctx, f.orgID, f.userID, f.args, f.snapshot)
+			require.NoError(t, err)
+			id, ctx := created.ContractID, f.ctx
+			status := "active"
+			if state == "draft" || state == "deprecated" {
+				status = state
+			}
+			_, err = testDB.Internal.Pool.Exec(f.ctx, "UPDATE contracts SET status=$2 WHERE id=$1", id, status)
+			require.NoError(t, err)
+			switch state {
+			case "foreign organization":
+				ctx = context.WithValue(ctx, "OrgID", pgtype.UUID{Bytes: uuid.New(), Valid: true})
+			case "missing":
+				id = pgtype.UUID{Bytes: uuid.New(), Valid: true}
+			case "missing organization":
+				ctx = context.WithValue(ctx, "OrgID", pgtype.UUID{})
+			case "missing user":
+				ctx = context.WithValue(ctx, "UserID", pgtype.UUID{})
+			case "canceled":
+				canceled, cancel := context.WithCancel(ctx)
+				cancel()
+				ctx = canceled
+			}
+			err = f.api.DeprecateContract(ctx, id)
+			switch state {
+			case "active":
+				require.NoError(t, err)
+			case "draft", "deprecated":
+				require.ErrorAs(t, err, new(*apperrors.ConflictError))
+			case "foreign organization", "missing":
+				require.ErrorAs(t, err, new(*apperrors.NotFoundError))
+			case "missing organization", "missing user":
+				require.ErrorAs(t, err, new(*apperrors.BadRequestError))
+			default:
+				require.Error(t, err)
+			}
+			saved, err := f.queries.GetContract(f.ctx, sqlc.GetContractParams{ID: created.ContractID, OrgID: f.orgID})
+			require.NoError(t, err)
+			if state == "active" {
+				require.Equal(t, "deprecated", saved.Status)
+				require.True(t, saved.DeprecatedAt.Valid)
+			} else {
+				require.Equal(t, status, saved.Status)
+				require.False(t, saved.DeprecatedAt.Valid)
+			}
+			require.Equal(t, int32(1), saved.CurrentVersion)
+			versions, err := f.queries.ListContractVersions(f.ctx, created.ContractID)
+			require.NoError(t, err)
+			require.Len(t, versions, 1)
+		})
+	}
 }

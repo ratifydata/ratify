@@ -66,3 +66,8 @@ RETURNING *;
 UPDATE contracts
 SET activated_at = now(), status = 'active', current_version = $2, updated_at = now()
 WHERE id = $1 AND org_id = $3 AND status = 'draft';
+
+-- name: DeprecateContract :execrows
+UPDATE contracts
+SET status = 'deprecated', deprecated_at = now(), updated_at = now()
+WHERE id = $1 AND org_id = $2 AND status = 'active';
