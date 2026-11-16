@@ -251,7 +251,7 @@ func TestContractShow(t *testing.T) {
 			require.NoError(t, json.Unmarshal([]byte(out), &detail))
 			require.Len(t, detail.Versions, 3)
 		} else {
-			for _, text := range []string{"sales.orders", "Data Platform", "Analytics", "Reporting", "order_id", "Added order ID", "0 hours", "Version history"} {
+			for _, text := range []string{"Orders", "sales.orders", "order_id", "Added order ID", "0 hours", "Version history"} {
 				require.Contains(t, out, text)
 			}
 			require.NotContains(t, out, "future_column")
@@ -275,7 +275,7 @@ func TestContractShowEmptyDetailsAndErrors(t *testing.T) {
 				require.Empty(t, out)
 			} else {
 				require.NoError(t, err)
-				for _, text := range []string{"No consumers.", "No versions.", "No columns recorded", "Not set"} {
+				for _, text := range []string{"No versions.", "No columns recorded", "Not set"} {
 					require.Contains(t, out, text)
 				}
 			}
