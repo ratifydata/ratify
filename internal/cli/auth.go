@@ -1,3 +1,17 @@
+// Copyright (C) 2026 Ratify Data
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
 package cli
 
 import (
@@ -11,21 +25,22 @@ import (
 )
 
 type Config struct {
-	apiKey string `yaml:"API_KEY"`
+	APIKey string `yaml:"API_KEY"`
+	APIURL string `yaml:"API_URL"`
 }
 
 var authCmd = &cobra.Command{
 	Use:   "auth",
-	Short: "Authenticate user",
+	Short: "set user Api Key",
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
 
 	},
 }
 
-var setApiKeyCmd = &cobra.Command{
+var setKey = &cobra.Command{
 	Use:   "set-key <api-key>",
-	Short: "Persists user API key in the environment",
+	Short: "Save the API key in .ratify/config.yml",
 	Long:  ``,
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -41,8 +56,7 @@ func setApiKey(key string) error {
 	var cfg map[string]string
 	path := filepath.Join(".ratify", "config.yml")
 	data, err := os.ReadFile(path)
-	if err != nil {
-		fmt.Println("Error reading config file")
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	err = yaml.Unmarshal(data, &cfg)
@@ -59,7 +73,8 @@ func setApiKey(key string) error {
 		fmt.Println("Error marshalling config")
 		return err
 	}
-	err = os.WriteFile(path, out, 0644)
+
+	err = os.WriteFile(path, out, 0600)
 	if err != nil {
 		fmt.Println("Error writing config file")
 	}
@@ -71,5 +86,5 @@ func init() {
 		ID:    "auth",
 		Title: "Auth",
 	})
-	authCmd.AddCommand(setApiKeyCmd)
+	authCmd.AddCommand(setKey)
 }
