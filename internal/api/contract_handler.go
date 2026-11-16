@@ -38,3 +38,60 @@ func createContract(c *contract.ContractApi) http.HandlerFunc {
 		writeJSONResponse(w, http.StatusCreated, Response{Status: "ok", Body: res})
 	}
 }
+
+func activateContract(c *contract.ContractApi) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, valid := pathID(w, r, "id")
+		if !valid {
+			return
+		}
+		result, err := c.ActivateContract(r.Context(), contract.ActivateContract{
+			ID: id,
+		})
+		if err != nil {
+			writeHTTPError(w, err)
+			return
+		}
+		writeJSONResponse(w, http.StatusOK, Response{Status: "ok", Body: result})
+	}
+}
+
+func getContract(c *contract.ContractApi) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, valid := pathID(w, r, "id")
+		if !valid {
+			return
+		}
+		res, err := c.GetContract(r.Context(), id)
+		if err != nil {
+			writeHTTPError(w, err)
+			return
+		}
+		writeJSONResponse(w, http.StatusOK, Response{Status: "ok", Body: res})
+	}
+}
+
+func listContracts(c *contract.ContractApi) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		contracts, err := c.ListContracts(r.Context(), r.URL.Query().Get("status"))
+		if err != nil {
+			writeHTTPError(w, err)
+			return
+		}
+		writeJSONResponse(w, http.StatusOK, Response{Status: "ok", Body: contracts})
+	}
+}
+
+func deprecateContract(c *contract.ContractApi) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, valid := pathID(w, r, "id")
+		if !valid {
+			return
+		}
+		if err := c.DeprecateContract(r.Context(), id); err != nil {
+			writeHTTPError(w, err)
+			return
+		}
+		writeJSONResponse(w, http.StatusOK, Response{Status: "ok"})
+	}
+}

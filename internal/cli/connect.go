@@ -1,31 +1,17 @@
-// Copyright (C) 2026 Ratify Data
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published
-// by the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
 package cli
 
 import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
 	"syscall"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	sqlc "github.com/ratifydata/ratify/internal/db/generated"
 	"github.com/ratifydata/ratify/internal/schema"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -41,11 +27,15 @@ type ConnectionDetails struct {
 }
 
 type ConnectCmd struct {
-	bridge *Bridge
+	inspector *schema.Inspector
 }
 
-func NewConnectCmd(bridge *Bridge) ConnectCmd {
-	return ConnectCmd{bridge: bridge}
+var orgID string
+
+func NewConnectCmd(db *sqlc.Queries, encKey string) ConnectCmd {
+	return ConnectCmd{
+		inspector: schema.NewInspector(db, encKey),
+	}
 }
 
 func (connectCmd *ConnectCmd) Connect() *cobra.Command {
@@ -72,13 +62,8 @@ func (connectCmd *ConnectCmd) ListConnections() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List saved database connections",
-		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if output != "table" && output != "json" {
-				return fmt.Errorf("output must be table or json")
-			}
-			var storedConnections []schema.StoredConnection
-			err := connectCmd.bridge.Do(cmd.Context(), http.MethodGet, "/connections", nil, &storedConnections)
+			storedConnections, err := connectCmd.inspector.ListDatabaseConnections(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -106,89 +91,76 @@ func (connectCmd *ConnectCmd) ListConnections() *cobra.Command {
 	return cmd
 }
 
-// connectionResult matches the API's response for add and test operations.
-type connectionResult struct {
-	Status  string `json:"status"`
-	Message string `json:"message,omitempty"`
-}
-
-func writeConnectionResult(cmd *cobra.Command, output, text string, result connectionResult) error {
-	if result.Status != "ok" {
-		return fmt.Errorf("unexpected connection response status %q: %s", result.Status, result.Message)
-	}
-	if output == "json" {
-		encoder := json.NewEncoder(cmd.OutOrStdout())
-		encoder.SetIndent("", "  ")
-		return encoder.Encode(result)
-	}
-	_, err := fmt.Fprintln(cmd.OutOrStdout(), text)
-	return err
-}
-
 func (connectCmd *ConnectCmd) TestConnectionCmd() *cobra.Command {
-	output := "text"
-	cmd := &cobra.Command{
-		Use: "test <connection-id>", Short: "Test a saved database connection", Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if output != "text" && output != "json" {
-				return fmt.Errorf("output must be text or json")
+	return &cobra.Command{
+		Use:   "test <connection-id>",
+		Short: "Test a saved database connection",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			var connectionID pgtype.UUID
+			if err := connectionID.Scan(args[0]); err != nil {
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "failure")
+				return
 			}
-			var id pgtype.UUID
-			if err := id.Scan(args[0]); err != nil || !id.Valid {
-				return fmt.Errorf("invalid connection UUID")
+
+			err := connectCmd.inspector.TestConnection(cmd.Context(), connectionID)
+
+			if err != nil {
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "failure")
+				return
 			}
-			var result connectionResult
-			if err := connectCmd.bridge.Do(cmd.Context(), http.MethodPost, "/connections/"+id.String()+"/test", nil, &result); err != nil {
-				return err
-			}
-			return writeConnectionResult(cmd, output, "success", result)
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "success")
+			return
 		},
 	}
-	cmd.Flags().StringVar(&output, "output", "text", "Output format: text or json")
-	return cmd
 }
 
 func (connectCmd *ConnectCmd) AddConnectionCmd() *cobra.Command {
-	output := "text"
-	cmd := &cobra.Command{
-		Use: "add", Short: "Add a new external database to ratify", Args: cobra.NoArgs,
+	return &cobra.Command{
+		Use:   "add",
+		Short: "Add a new external database to ratify",
+		Long:  "Add a new external database to ratify",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if output != "text" && output != "json" {
-				return fmt.Errorf("output must be text or json")
-			}
-			connDetails, err := promptConnectionDetails(cmd.ErrOrStderr())
+
+			connDetails, err := promptConnectionDetails()
 			if err != nil {
 				return err
 			}
+
 			port, err := strconv.Atoi(connDetails.Port)
 			if err != nil {
-				return fmt.Errorf("invalid port: %w", err)
-			}
-			var result connectionResult
-			err = connectCmd.bridge.Do(cmd.Context(), http.MethodPost, "/connections", schema.ConnectionParams{
-				Host: connDetails.Host, Port: port, Username: connDetails.Username, Password: connDetails.Password,
-				DatabaseName: connDetails.DatabaseName, SSLMode: connDetails.SSLMode,
-				SSlEnabled: connDetails.SSLMode != string(schema.DISABLED), DriverName: "pgx",
-			}, &result)
-			if err != nil {
+				slog.Error("Error reading port number")
 				return err
 			}
-			return writeConnectionResult(cmd, output, "Connection added successfully.", result)
+
+			err = connectCmd.inspector.SchemaInspection(cmd.Context(), schema.ConnectionParams{
+				Host:         connDetails.Host,
+				Port:         port,
+				Username:     connDetails.Username,
+				Password:     connDetails.Password,
+				DatabaseName: connDetails.DatabaseName,
+				SSlEnabled:   connDetails.SSLMode != string(schema.DISABLED),
+				DriverName:   "pgx",
+			})
+			if err != nil {
+				slog.Error("Error connecting to external database from CLI")
+				return err
+			}
+
+			return nil
 		},
 	}
-	cmd.Flags().StringVar(&output, "output", "text", "Output format: text or json")
-	return cmd
 }
 
-func promptConnectionDetails(output io.Writer) (*ConnectionDetails, error) {
+func promptConnectionDetails() (*ConnectionDetails, error) {
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Println("Database connection parameters")
-	hostname, err := prompt(reader, output, "Hostname")
+	fmt.Print("Database connection parameters. \n")
+	hostname, err := prompt(reader, "Hostname")
 	if err != nil {
 		return nil, err
 	}
-	port, err := prompt(reader, output, "Port [5432]")
+	port, err := prompt(reader, "Port [5432]")
 	if err != nil {
 		return nil, err
 	}
@@ -196,15 +168,15 @@ func promptConnectionDetails(output io.Writer) (*ConnectionDetails, error) {
 		port = "5432"
 	}
 
-	databaseName, err := prompt(reader, output, "Database")
+	databaseName, err := prompt(reader, "Database")
 	if err != nil {
 		return nil, err
 	}
-	username, err := prompt(reader, output, "Username")
+	username, err := prompt(reader, "Username")
 	if err != nil {
 		return nil, err
 	}
-	sslMode, err := prompt(reader, output, "SSL mode [disable]")
+	sslMode, err := prompt(reader, "SSL mode [disable]")
 	if err != nil {
 		return nil, err
 	}
@@ -212,9 +184,9 @@ func promptConnectionDetails(output io.Writer) (*ConnectionDetails, error) {
 		sslMode = string(schema.DISABLED)
 	}
 
-	fmt.Println(output, "Password: ")
+	fmt.Print("Password: ")
 	passBytes, err := term.ReadPassword(syscall.Stdin)
-	fmt.Println(output)
+	fmt.Println()
 	if err != nil {
 		return nil, fmt.Errorf("error reading password")
 	}
@@ -241,8 +213,8 @@ func promptConnectionDetails(output io.Writer) (*ConnectionDetails, error) {
 	}, nil
 }
 
-func prompt(reader *bufio.Reader, output io.Writer, label string) (string, error) {
-	fmt.Println(output, "%s: ", label)
+func prompt(reader *bufio.Reader, label string) (string, error) {
+	fmt.Printf("%s: ", label)
 	value, err := reader.ReadString('\n')
 	if err != nil {
 		return "", err

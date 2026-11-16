@@ -25,6 +25,7 @@ import (
 type SchemaChange string
 
 const (
+	ColumnAdded              SchemaChange = "added"
 	ColumnRemoved            SchemaChange = "removed"
 	ColumnTypeChanged        SchemaChange = "type_changed"
 	ColumnNullabilityChanged SchemaChange = "nullability_changed"
@@ -53,6 +54,10 @@ func ValidateContractAgainstSchema(contractSchema []byte, live *schema.TableSnap
 // Changes follow persisted column order, then additions follow live column order.
 // Renaming a column is represented as a removal and an addition.
 func DiffSchema(prior, current *schema.TableSnapshot) ([]SnapshotConflict, error) {
+	priorColumns, err := indexSnapshot(prior)
+	if err != nil {
+		return nil, fmt.Errorf("prior snapshot: %w", err)
+	}
 	currentSnapshotColumns, err := indexSnapshot(current)
 	if err != nil {
 		return nil, err
@@ -71,12 +76,17 @@ func DiffSchema(prior, current *schema.TableSnapshot) ([]SnapshotConflict, error
 			conflicts = append(conflicts, SnapshotConflict{ColumnName: old.ColumnName, Mismatch: ColumnNullabilityChanged, Before: &old, After: &current})
 		}
 	}
+	for _, column := range current.Columns {
+		if _, exists := priorColumns[column.ColumnName]; !exists {
+			conflicts = append(conflicts, SnapshotConflict{ColumnName: column.ColumnName, Mismatch: ColumnAdded, After: &column})
+		}
+	}
 	return conflicts, nil
 }
 
 func indexSnapshot(snapshot *schema.TableSnapshot) (map[string]schema.TableData, error) {
 	if snapshot == nil {
-		return nil, fmt.Errorf(" snapshot is nil")
+		return nil, fmt.Errorf("snapshot is nil")
 	}
 	columns := make(map[string]schema.TableData, len(snapshot.Columns))
 	for _, column := range snapshot.Columns {

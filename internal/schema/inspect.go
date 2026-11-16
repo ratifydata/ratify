@@ -182,8 +182,6 @@ func (i *Inspector) TestConnection(ctx context.Context, id pgtype.UUID) (retErr 
 		slog.Error("error establishing postgres connection and validating privileges")
 		return err
 	}
-
-	//Update last_updated column db connection
 	return nil
 
 }
