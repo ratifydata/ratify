@@ -41,17 +41,18 @@ func createContract(c *contract.ContractApi) http.HandlerFunc {
 
 func activateContract(c *contract.ContractApi) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var params contract.ActivateContract
-		if json.NewDecoder(r.Body).Decode(&params) != nil {
-			writeJSONResponse(w, http.StatusBadRequest, Response{Status: "error", Message: "invalid request body"})
+		id, valid := pathID(w, r, "id")
+		if !valid {
 			return
 		}
-		err := c.ActivateContract(r.Context(), params)
+		result, err := c.ActivateContract(r.Context(), contract.ActivateContract{
+			ID: id,
+		})
 		if err != nil {
 			writeHTTPError(w, err)
 			return
 		}
-		writeJSONResponse(w, http.StatusCreated, Response{Status: "ok"})
+		writeJSONResponse(w, http.StatusOK, Response{Status: "ok", Body: result})
 	}
 }
 

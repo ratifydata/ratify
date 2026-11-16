@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -28,7 +27,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/ratifydata/ratify/internal/apperrors"
 	"github.com/ratifydata/ratify/internal/auth"
 	"github.com/ratifydata/ratify/internal/contract"
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
@@ -106,8 +104,10 @@ func TestCreateContractHandler(t *testing.T) {
 					require.NoError(t, err)
 				}
 			case "missing organization":
+				status, message = http.StatusBadRequest, "OrgID missing from context"
 				ctx = context.WithValue(t.Context(), "UserID", user.ID)
 			case "missing user":
+				status, message = http.StatusBadRequest, "UserID missing from context"
 				ctx = context.WithValue(t.Context(), "OrgID", org.ID)
 			case "canceled request":
 				var cancel context.CancelFunc
@@ -140,17 +140,17 @@ func TestCreateContractHandler(t *testing.T) {
 			require.Equal(t, int32(1), stored[0].CurrentVersion)
 			var count int
 			require.NoError(t, containers.Internal.Pool.QueryRow(t.Context(), `SELECT count(*) FROM contract_columns WHERE contract_version_id=$1`, version.ID).Scan(&count))
-			require.Zero(t, count, "draft initialization does not insert columns")
+			require.Equal(t, len(snapshot.Columns), count)
 		})
 	}
 }
 
-func TestActivateContractInvalidBody(t *testing.T) {
+func TestActivateContractInvalidID(t *testing.T) {
 	for _, body := range []string{"", "{", "[]", `{"id":"invalid"}`, `{"id":42}`} {
 		t.Run(body, func(t *testing.T) {
 			rec := httptest.NewRecorder()
 			activateContract(nil).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/contracts/id/activate", strings.NewReader(body)))
-			assertTeamResponse(t, rec, http.StatusBadRequest, Response{Status: "error", Message: "invalid request body"})
+			assertTeamResponse(t, rec, http.StatusBadRequest, Response{Status: "error", Message: "invalid id"})
 		})
 	}
 }
@@ -164,8 +164,14 @@ func TestActivateContractMissingIdentity(t *testing.T) {
 			}
 			rec := httptest.NewRecorder()
 			// An empty service ensures identity checks precede database access.
-			activateContract(&contract.ContractApi{}).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/contracts/id/activate", strings.NewReader(`{}`)).WithContext(ctx))
-			assertTeamResponse(t, rec, http.StatusInternalServerError, Response{Status: "error", Message: "internal server error"})
+			req := httptest.NewRequest(http.MethodPost, "/contracts/id/activate", nil).WithContext(ctx)
+			req.SetPathValue("id", uuid.NewString())
+			activateContract(&contract.ContractApi{}).ServeHTTP(rec, req)
+			message := "OrgID missing from context"
+			if missing == "user" {
+				message = "UserID missing from context"
+			}
+			assertTeamResponse(t, rec, http.StatusBadRequest, Response{Status: "error", Message: message})
 		})
 	}
 }
@@ -216,18 +222,25 @@ func TestActivateContractHandler(t *testing.T) {
 			wantResponse := Response{Status: "error", Message: "internal server error"}
 			switch name {
 			case "unchanged schema", "changed schema":
-				wantStatus, wantResponse = http.StatusCreated, Response{Status: "ok"}
+				wantStatus, wantResponse = http.StatusOK, Response{Status: "ok"}
 				if name == "changed schema" {
 					_, err = containers.External.DB.ExecContext(t.Context(), `ALTER TABLE public.`+table+` ALTER COLUMN note SET NOT NULL`)
 					require.NoError(t, err)
 				}
 			case "already active":
-				require.NoError(t, service.ActivateContract(ctx, params))
+				_, err := service.ActivateContract(ctx, params)
+				require.NoError(t, err)
+				wantStatus = http.StatusBadRequest
+				wantResponse.Message = "contract is not draft"
 			case "foreign organization":
+				wantStatus = http.StatusNotFound
+				wantResponse.Message = "contract not found"
 				other, err := queries.CreateOrganization(t.Context(), sqlc.CreateOrganizationParams{Name: "Other", Slug: "other-" + suffix})
 				require.NoError(t, err)
 				ctx = context.WithValue(ctx, "OrgID", other.ID)
 			case "missing contract":
+				wantStatus = http.StatusNotFound
+				wantResponse.Message = "contract not found"
 				params.ID = pgtype.UUID{Bytes: [16]byte(uuid.New()), Valid: true}
 			case "missing table":
 				_, err = containers.External.DB.ExecContext(t.Context(), `DROP TABLE public.`+table)
@@ -242,12 +255,30 @@ func TestActivateContractHandler(t *testing.T) {
 			body, err := json.Marshal(params)
 			require.NoError(t, err)
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/contracts/id/activate", bytes.NewReader(body)).WithContext(ctx))
-			assertTeamResponse(t, rec, wantStatus, wantResponse)
+			req := httptest.NewRequest(http.MethodPost, "/contracts/"+params.ID.String()+"/activate", bytes.NewReader(body)).WithContext(ctx)
+			req.SetPathValue("id", params.ID.String())
+			handler.ServeHTTP(rec, req)
+			if wantStatus == http.StatusOK {
+				require.Equal(t, wantStatus, rec.Code)
+				var response struct {
+					Status string                      `json:"status"`
+					Body   contract.ContractActivation `json:"body"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+				require.Equal(t, "ok", response.Status)
+				expectedVersion := int32(1)
+				if name == "changed schema" {
+					expectedVersion = 2
+				}
+				require.Equal(t, expectedVersion, response.Body.Version)
+				require.Len(t, response.Body.SnapshotChanges, int(expectedVersion-1))
+			} else {
+				assertTeamResponse(t, rec, wantStatus, wantResponse)
+			}
 			stored, err := queries.GetContract(t.Context(), sqlc.GetContractParams{ID: draft.ContractID, OrgID: org.ID})
 			require.NoError(t, err)
-			wantVersion, wantColumns := int32(1), 0
-			wantActive := wantStatus == http.StatusCreated || name == "already active"
+			wantVersion, wantColumns := int32(1), 2
+			wantActive := wantStatus == http.StatusOK || name == "already active"
 			if wantActive {
 				require.Equal(t, "active", stored.Status)
 			} else {
@@ -348,42 +379,84 @@ func TestReadContractHandlers(t *testing.T) {
 	})
 }
 
-type stubContractDeprecator struct {
-	id     pgtype.UUID
-	err    error
-	called bool
-}
-
-func (s *stubContractDeprecator) DeprecateContract(_ context.Context, id pgtype.UUID) error {
-	s.called = true
-	s.id = id
-	return s.err
-}
-
 func TestDeprecateContractHandler(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires Postgres containers")
+	}
+	containers, err := testutil.InitializePostgresContainer()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		containers.Internal.Pool.Close()
+		require.NoError(t, containers.External.DB.Close())
+		testutil.TerminateContainer(containers.Internal.Container, containers.External.Container)
+	})
+	q := sqlc.New(containers.Internal.Pool)
+	service := contract.New(containers.Internal.Pool, "0123456789abcdef0123456789abcdef")
+	org, err := q.CreateOrganization(t.Context(), sqlc.CreateOrganizationParams{Name: "Deprecation", Slug: uuid.NewString()})
+	require.NoError(t, err)
+	other, err := q.CreateOrganization(t.Context(), sqlc.CreateOrganizationParams{Name: "Other", Slug: uuid.NewString()})
+	require.NoError(t, err)
+	team, err := q.CreateTeam(t.Context(), sqlc.CreateTeamParams{OrgID: org.ID, Name: "Producers"})
+	require.NoError(t, err)
+	connection, err := q.CreateDatabaseConnection(t.Context(), sqlc.CreateDatabaseConnectionParams{
+		OrgID: org.ID, DisplayName: "Warehouse", Host: "localhost", Port: 5432, DatabaseName: "warehouse", Username: "reader",
+		PasswordEncrypted: []byte("encrypted"), Nonce: []byte("nonce"), SslMode: "disable", Status: "active",
+	})
+	require.NoError(t, err)
+	// No UserID is needed for deprecation.
+	ctx := context.WithValue(t.Context(), "OrgID", org.ID)
 	for _, tc := range []struct {
-		name   string
-		err    error
-		status int
+		name, state string
+		status      int
+		message     string
 	}{
-		{"success", nil, http.StatusOK},
-		{"not found", &apperrors.NotFoundError{Err: errors.New("contract not found")}, http.StatusNotFound},
-		{"conflict", &apperrors.ConflictError{Err: errors.New("only active contracts can be deprecated")}, http.StatusConflict},
-		{"bad request", &apperrors.BadRequestError{Err: errors.New("invalid context")}, http.StatusBadRequest},
-		{"internal", errors.New("database credentials"), http.StatusInternalServerError},
+		{"active without user", "active", http.StatusOK, ""},
+		{"draft", "draft", http.StatusConflict, "only active contracts can be deprecated"},
+		{"already deprecated", "deprecated", http.StatusConflict, "only active contracts can be deprecated"},
+		{"missing", "active", http.StatusNotFound, "contract not found"},
+		{"foreign organization", "active", http.StatusNotFound, "contract not found"},
+		{"missing organization", "active", http.StatusBadRequest, "OrgID missing from context"},
+		{"canceled request", "active", http.StatusInternalServerError, "internal server error"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			service := &stubContractDeprecator{err: tc.err}
-			id := uuid.NewString()
-			req := httptest.NewRequest(http.MethodPatch, "/api/v1/contracts/"+id+"/deprecate", nil)
+			created, err := service.CreateContract(ctx, org.ID, contract.ContractParams{
+				ConnectionId: connection.ID, TeamId: team.ID, DisplayName: "Orders", SchemaName: "public", TableName: uuid.NewString(),
+			})
+			require.NoError(t, err)
+			_, err = containers.Internal.Pool.Exec(ctx, "UPDATE contracts SET status=$2 WHERE id=$1", created.ID, tc.state)
+			require.NoError(t, err)
+			before, err := q.GetContract(ctx, sqlc.GetContractParams{ID: created.ID, OrgID: org.ID})
+			require.NoError(t, err)
+			id, requestCtx := created.ID.String(), ctx
+			switch tc.name {
+			case "missing":
+				id = uuid.NewString()
+			case "foreign organization":
+				requestCtx = context.WithValue(ctx, "OrgID", other.ID)
+			case "missing organization":
+				requestCtx = t.Context()
+			case "canceled request":
+				canceled, cancel := context.WithCancel(ctx)
+				cancel()
+				requestCtx = canceled
+			}
+			req := httptest.NewRequest(http.MethodPatch, "/api/v1/contracts/"+id+"/deprecate", nil).WithContext(requestCtx)
 			req.SetPathValue("id", id)
 			rec := httptest.NewRecorder()
 			deprecateContract(service).ServeHTTP(rec, req)
-			require.Equal(t, tc.status, rec.Code)
-			require.True(t, service.called)
-			require.Equal(t, id, service.id.String())
-			if tc.status == http.StatusInternalServerError {
-				require.NotContains(t, rec.Body.String(), "credentials")
+			if tc.status == http.StatusOK {
+				assertTeamResponse(t, rec, tc.status, Response{Status: "ok"})
+			} else {
+				assertTeamResponse(t, rec, tc.status, Response{Status: "error", Message: tc.message})
+			}
+			after, err := q.GetContract(ctx, sqlc.GetContractParams{ID: created.ID, OrgID: org.ID})
+			require.NoError(t, err)
+			if tc.status == http.StatusOK {
+				require.Equal(t, "deprecated", after.Status)
+				require.True(t, after.DeprecatedAt.Valid)
+				require.Equal(t, before.CurrentVersion, after.CurrentVersion)
+			} else {
+				require.Equal(t, before, after, "failed requests must not mutate the contract")
 			}
 		})
 	}
@@ -391,12 +464,11 @@ func TestDeprecateContractHandler(t *testing.T) {
 
 func TestDeprecateContractInvalidID(t *testing.T) {
 	for _, id := range []string{"", "invalid"} {
-		service := &stubContractDeprecator{}
 		req := httptest.NewRequest(http.MethodPatch, "/contracts/invalid/deprecate", nil)
 		req.SetPathValue("id", id)
 		rec := httptest.NewRecorder()
-		deprecateContract(service).ServeHTTP(rec, req)
-		require.Equal(t, http.StatusBadRequest, rec.Code)
-		require.False(t, service.called)
+		// Invalid IDs must return before invoking the concrete service.
+		deprecateContract(nil).ServeHTTP(rec, req)
+		assertTeamResponse(t, rec, http.StatusBadRequest, Response{Status: "error", Message: "invalid id"})
 	}
 }
