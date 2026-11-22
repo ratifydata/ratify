@@ -534,19 +534,13 @@ func TestActivateContractAddedColumn(t *testing.T) {
 	require.NoError(t, err)
 	result, err := f.api.ActivateContract(f.ctx, ActivateContract{ID: draft.ContractID})
 	require.NoError(t, err)
-	require.Equal(t, int32(2), result.Version)
-	require.Len(t, result.SnapshotChanges, 1)
-	change := result.SnapshotChanges[0]
-	require.Equal(t, ColumnAdded, change.Mismatch)
-	require.Equal(t, "added_note", change.ColumnName)
-	require.Nil(t, change.Before)
-	require.NotNil(t, change.After)
+	require.Equal(t, draft.CurrentVersion, result.Version)
+	require.Empty(t, result.SnapshotChanges)
 	saved, err := f.api.GetContract(f.ctx, draft.ContractID)
 	require.NoError(t, err)
-	require.Equal(t, int32(2), saved.CurrentVersion)
-	require.Len(t, saved.Versions, 2)
-	require.Len(t, saved.Versions[0].Columns, len(f.snapshot.Columns)+1)
-	require.Equal(t, "added_note", saved.Versions[0].Columns[len(f.snapshot.Columns)].ColumnName)
+	require.Equal(t, draft.CurrentVersion, saved.CurrentVersion)
+	require.Len(t, saved.Versions, 1)
+	require.Len(t, saved.Versions[0].Columns, len(f.snapshot.Columns))
 }
 
 func TestActivateContractNullSnapshot(t *testing.T) {

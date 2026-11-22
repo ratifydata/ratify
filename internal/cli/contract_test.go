@@ -82,7 +82,7 @@ func TestContractListCommand(t *testing.T) {
 		require.Equal(t, "/api/cli/v1/contracts", r.URL.Path)
 		require.Equal(t, int64(0), r.ContentLength)
 		require.Empty(t, r.URL.RawQuery)
-		_, _ = w.Write([]byte(`{"status":"ok","body":[{"ID":"` + contractTestID + `","DisplayName":"Orders","SchemaName":"public","TableName":"orders","Status":"draft","CurrentVersion":1}]}`))
+		_, _ = w.Write([]byte(`{"status":"ok","body":[{"id":"` + contractTestID + `","display_name":"Orders","schema_name":"public","table_name":"orders","status":"draft","current_version":1}]}`))
 	}))
 	defer server.Close()
 	for _, output := range []string{"table", "json"} {
@@ -137,7 +137,7 @@ func TestContractCommandValidation(t *testing.T) {
 		append(createContractArgs(), "--freshness-sla-hours", "-1"),
 		append(createContractArgs(), "--output", "xml"),
 		{"activate"}, {"activate", "bad"}, {"activate", contractTestID, "extra"},
-		{"activate", contractTestID, "--output", "xml"}, {"list", "extra"}, {"list", "--output", "xml"},
+		{"activate", contractTestID, "--output", "xml"}, {"list", "extra"}, {"list", "--output", "xml"}, {"list", "--status", "draft"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			c := NewContractCmd(nil)
@@ -249,7 +249,7 @@ func TestInteractiveContractCreateEOF(t *testing.T) {
 }
 
 func TestContractShow(t *testing.T) {
-	body := `{"ID":"` + contractTestID + `","DisplayName":"Orders","SchemaName":"sales","TableName":"orders","Status":"active","CurrentVersion":2,"FreshnessSlaHours":0,"producer":{"id":"` + contractTeamID + `","name":"Data Platform","email":"data@example.com"},"consumers":[{"team":{"id":"` + contractTeamID + `","name":"Analytics"},"status":"approved","usage_description":"Reporting"}],"versions":[{"version":3,"columns":[{"column_name":"future_column"}]},{"version":2,"description":"Added order ID","columns":[{"column_name":"order_id","data_type":"integer","is_primary_key":true,"position":1}]},{"version":1,"columns":[]}]}`
+	body := `{"id":"` + contractTestID + `","display_name":"Orders","schema_name":"sales","table_name":"orders","status":"active","current_version":2,"freshness_sla_hours":0,"producer":{"id":"` + contractTeamID + `","name":"Data Platform","email":"data@example.com"},"consumers":[{"team":{"id":"` + contractTeamID + `","name":"Analytics"},"status":"approved","usage_description":"Reporting"}],"versions":[{"version":3,"columns":[{"column_name":"future_column"}]},{"version":2,"description":"Added order ID","columns":[{"column_name":"order_id","data_type":"integer","is_primary_key":true,"position":1}]},{"version":1,"columns":[]}]}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodGet, r.Method)
 		require.Equal(t, "/api/cli/v1/contracts/"+contractTestID, r.URL.Path)
@@ -276,7 +276,7 @@ func TestContractShow(t *testing.T) {
 
 func TestContractShowEmptyDetailsAndErrors(t *testing.T) {
 	for _, tc := range []struct{ body, want string }{
-		{`{"status":"ok","body":{"CurrentVersion":1}}`, ""},
+		{`{"status":"ok","body":{"current_version":1}}`, ""},
 		{`{"status":"ok","body":null}`, "no details"},
 		{`{"status":"error","message":"contract not found"}`, "contract not found"},
 	} {
