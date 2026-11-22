@@ -311,6 +311,29 @@ func TestGetContractInvalidID(t *testing.T) {
 	}
 }
 
+func TestContractResponseJSONKeys(t *testing.T) {
+	rec := httptest.NewRecorder()
+	model := contract.ContractModel{
+		DisplayName: "Orders",
+		Versions: []contract.ContractVersionDetail{{
+			Columns: []contract.ContractColumn{{
+				Constraints: json.RawMessage(`{"unique":true}`),
+			}},
+		}},
+	}
+	writeJSONResponse(rec, http.StatusOK, Response{Status: "ok", Body: model})
+
+	var response struct {
+		Body map[string]any `json:"body"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&response))
+	require.Contains(t, response.Body, "display_name")
+	require.Equal(t, "Orders", response.Body["display_name"])
+	versions := response.Body["versions"].([]any)
+	columns := versions[0].(map[string]any)["columns"].([]any)
+	require.Equal(t, map[string]any{"unique": true}, columns[0].(map[string]any)["constraints"])
+}
+
 func TestReadContractHandlers(t *testing.T) {
 	if testing.Short() {
 		t.Skip("requires Postgres containers")

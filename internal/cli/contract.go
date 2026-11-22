@@ -189,7 +189,7 @@ func (c *ContractCmd) Display() *cobra.Command {
 }
 
 func (c *ContractCmd) List() *cobra.Command {
-	var status, output string
+	var output string
 	cmd := &cobra.Command{Use: "list", Short: "List contracts, optionally filtered by status", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if output != "table" && output != "json" {
@@ -226,7 +226,6 @@ func (c *ContractCmd) List() *cobra.Command {
 			return writer.Flush()
 		},
 	}
-	cmd.Flags().StringVar(&status, "status", "", "Filter by contract status")
 	cmd.Flags().StringVar(&output, "output", "table", "Output format: table or json")
 	return cmd
 }

@@ -60,27 +60,27 @@ type ContractVersion struct {
 }
 
 type ContractColumn struct {
-	ContractVersionId pgtype.UUID `json:"contract_version_id"`
-	ColumnName        string      `json:"column_name"`
-	DataType          string      `json:"data_type"`
-	IsNullable        bool        `json:"is_nullable"`
-	IsPrimaryKey      bool        `json:"is_primary_key"`
-	Description       pgtype.Text `json:"description"`
-	Constraints       []byte      `json:"constraints"`
-	Position          int32       `json:"position"`
+	ContractVersionId pgtype.UUID     `json:"contract_version_id"`
+	ColumnName        string          `json:"column_name"`
+	DataType          string          `json:"data_type"`
+	IsNullable        bool            `json:"is_nullable"`
+	IsPrimaryKey      bool            `json:"is_primary_key"`
+	Description       pgtype.Text     `json:"description"`
+	Constraints       json.RawMessage `json:"constraints"`
+	Position          int32           `json:"position"`
 }
 
 type ContractModel struct {
-	ID                pgtype.UUID
-	ConnectionID      pgtype.UUID
-	ProducerTeamID    pgtype.UUID
-	DisplayName       string
-	SchemaName        string
-	TableName         string
-	Description       pgtype.Text
-	Status            string
-	FreshnessSlaHours pgtype.Int4
-	CurrentVersion    int32
+	ID                pgtype.UUID             `json:"id"`
+	ConnectionID      pgtype.UUID             `json:"connection_id"`
+	ProducerTeamID    pgtype.UUID             `json:"producer_team_id"`
+	DisplayName       string                  `json:"display_name"`
+	SchemaName        string                  `json:"schema_name"`
+	TableName         string                  `json:"table_name"`
+	Description       pgtype.Text             `json:"description"`
+	Status            string                  `json:"status"`
+	FreshnessSlaHours pgtype.Int4             `json:"freshness_sla_hours"`
+	CurrentVersion    int32                   `json:"current_version"`
 	Versions          []ContractVersionDetail `json:"versions"`
 }
 
