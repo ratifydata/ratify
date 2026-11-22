@@ -26,7 +26,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/ratifydata/ratify/internal/apperrors"
 	"github.com/ratifydata/ratify/internal/auth"
 	sqlc "github.com/ratifydata/ratify/internal/db/generated"
 	"github.com/ratifydata/ratify/internal/schema"
@@ -130,7 +132,7 @@ func TestInitContract(t *testing.T) {
 			require.Equal(t, int32(1), result.CurrentVersion)
 			require.Equal(t, "draft", result.Status)
 			require.Equal(t, f.snapshot.Columns, result.TableColumns)
-			stored, err := f.queries.GetContract(f.ctx, result.ContractID)
+			stored, err := f.queries.GetContract(f.ctx, sqlc.GetContractParams{ID: result.ContractID, OrgID: f.orgID})
 			require.NoError(t, err)
 			require.Equal(t, f.orgID, stored.OrgID)
 			require.Equal(t, f.args.TeamId, stored.ProducerTeamID)
@@ -179,12 +181,11 @@ func TestInitContractRollback(t *testing.T) {
 			switch stage {
 			case "contract":
 				f.args.ConnectionId = pgtype.UUID{Bytes: [16]byte(uuid.New()), Valid: true}
+			case "columns":
+				f.snapshot.Columns[0].ColumnName = "invalid\x00column"
 			case "version":
 				f.userID = pgtype.UUID{Bytes: [16]byte(uuid.New()), Valid: true}
-			case "columns":
-				// JSON marshaling replaces invalid UTF-8 in the snapshot, but COPY
-				// rejects the original column name after the earlier valid rows.
-				f.snapshot.Columns[2].ColumnName = string([]byte{0xff})
+
 			}
 			result, err := f.api.initContractSnapshot(f.ctx, f.orgID, f.userID, f.args, f.snapshot)
 			require.Error(t, err)
@@ -256,4 +257,303 @@ func TestInitContractCanceledRequest(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, result)
 	assertNoContracts(t, f)
+}
+
+func TestActivateContract(t *testing.T) {
+	for _, changed := range []bool{false, true} {
+		name := "unchanged schema"
+		if changed {
+			name = "changed schema"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newContractFixture(t)
+			draft, err := f.api.InitContract(f.ctx, f.args)
+			require.NoError(t, err)
+			if changed {
+				_, err = testDB.External.DB.ExecContext(f.ctx, `ALTER TABLE `+f.args.SchemaName+`.orders ALTER COLUMN note SET NOT NULL`)
+				require.NoError(t, err)
+			}
+			activation, err := f.api.ActivateContract(f.ctx, ActivateContract{ID: draft.ContractID})
+			require.NoError(t, err)
+			require.NotNil(t, activation)
+			stored, err := f.queries.GetContract(f.ctx, sqlc.GetContractParams{ID: draft.ContractID, OrgID: f.orgID})
+			require.NoError(t, err)
+			require.Equal(t, "active", stored.Status)
+			require.True(t, stored.ActivatedAt.Valid)
+			wantVersion, wantColumns := int32(1), len(f.snapshot.Columns)
+			if changed {
+				wantVersion, wantColumns = 2, len(f.snapshot.Columns)
+			}
+			require.Equal(t, wantVersion, activation.Version)
+			require.Len(t, activation.SnapshotChanges, int(wantVersion-1))
+			require.Equal(t, wantVersion, stored.CurrentVersion)
+			versions, err := f.queries.ListContractVersions(f.ctx, draft.ContractID)
+			require.NoError(t, err)
+			require.Len(t, versions, int(wantVersion))
+			var columns int
+			require.NoError(t, testDB.Internal.Pool.QueryRow(f.ctx, `SELECT count(*) FROM contract_columns WHERE contract_version_id=$1`, versions[0].ID).Scan(&columns))
+			require.Equal(t, wantColumns, columns)
+			_, err = f.api.ActivateContract(f.ctx, ActivateContract{ID: draft.ContractID})
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestActivateContractConcurrent(t *testing.T) {
+	f := newContractFixture(t)
+	draft, err := f.api.InitContract(f.ctx, f.args)
+	require.NoError(t, err)
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			_, err := f.api.ActivateContract(f.ctx, ActivateContract{ID: draft.ContractID})
+			results <- err
+		}()
+	}
+	close(start)
+	successes := 0
+	for range 2 {
+		if <-results == nil {
+			successes++
+		}
+	}
+	require.Equal(t, 1, successes, "only one concurrent activation may succeed")
+}
+
+func TestActivateContractRollback(t *testing.T) {
+	f := newContractFixture(t)
+	first, err := f.api.InitContract(f.ctx, f.args)
+	require.NoError(t, err)
+	_, err = f.api.ActivateContract(f.ctx, ActivateContract{ID: first.ContractID})
+	require.NoError(t, err)
+	second, err := f.api.InitContract(f.ctx, f.args)
+	require.NoError(t, err)
+	_, err = testDB.External.DB.ExecContext(f.ctx, `ALTER TABLE `+f.args.SchemaName+`.orders ALTER COLUMN note SET NOT NULL`)
+	require.NoError(t, err)
+	// The existing active contract makes the final update fail its unique index.
+	_, err = f.api.ActivateContract(f.ctx, ActivateContract{ID: second.ContractID})
+	require.Error(t, err)
+	stored, err := f.queries.GetContract(f.ctx, sqlc.GetContractParams{ID: second.ContractID, OrgID: f.orgID})
+	require.NoError(t, err)
+	require.Equal(t, "draft", stored.Status)
+	require.Equal(t, int32(1), stored.CurrentVersion)
+	require.False(t, stored.ActivatedAt.Valid)
+	versions, err := f.queries.ListContractVersions(f.ctx, second.ContractID)
+	require.NoError(t, err)
+	require.Len(t, versions, 1, "new version must roll back when activation fails")
+}
+
+func TestGetContract(t *testing.T) {
+	f := newContractFixture(t)
+	draft, err := f.api.InitContract(f.ctx, f.args)
+	require.NoError(t, err)
+	version, err := f.api.ContractVersion(f.ctx, ContractVersion{
+		ContractId: draft.ContractID, Version: 2, User: f.userID,
+		Description: f.args.Description, Snapshot: f.snapshot,
+	})
+	require.NoError(t, err)
+	require.NoError(t, f.api.ContractColumn(f.ctx, version.ID, f.snapshot))
+
+	result, err := f.api.GetContract(f.ctx, draft.ContractID)
+	require.NoError(t, err)
+	require.Equal(t, draft.ContractID, result.ID)
+	require.Equal(t, f.args.DisplayName, result.DisplayName)
+	require.Equal(t, draft.CurrentVersion, result.CurrentVersion)
+	require.Len(t, result.Versions, 2)
+	require.Equal(t, int32(2), result.Versions[0].Version)
+	require.Equal(t, int32(1), result.Versions[1].Version)
+	require.NotNil(t, result.Versions[1].Columns)
+	require.Len(t, result.Versions[1].Columns, len(f.snapshot.Columns))
+	require.Len(t, result.Versions[0].Columns, len(f.snapshot.Columns))
+	for i, column := range result.Versions[0].Columns {
+		require.Equal(t, version.ID, column.ContractVersionId)
+		require.Equal(t, f.snapshot.Columns[i].ColumnName, column.ColumnName)
+		require.Equal(t, f.snapshot.Columns[i].OrdinalPosition, column.Position)
+		require.Equal(t, f.snapshot.Columns[i].IsNullable, column.IsNullable)
+		require.Equal(t, f.snapshot.Columns[i].IsPrimaryKey, column.IsPrimaryKey)
+	}
+
+	other := newContractFixture(t)
+	result, err = f.api.GetContract(other.ctx, draft.ContractID)
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+	require.Nil(t, result)
+	result, err = f.api.GetContract(f.ctx, pgtype.UUID{Bytes: [16]byte(uuid.New()), Valid: true})
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+	require.Nil(t, result)
+	result, err = f.api.GetContract(t.Context(), draft.ContractID)
+	require.Error(t, err)
+	require.Nil(t, result)
+}
+
+func TestListContracts(t *testing.T) {
+	f := newContractFixture(t)
+	older, err := f.api.CreateContract(f.ctx, f.orgID, f.args)
+	require.NoError(t, err)
+	args := f.args
+	sla := int32(12)
+	args.DisplayName = "Newer orders contract"
+	args.FreshnessSlaHours = &sla
+	newer, err := f.api.CreateContract(f.ctx, f.orgID, args)
+	require.NoError(t, err)
+	active, err := f.api.CreateContract(f.ctx, f.orgID, f.args)
+	require.NoError(t, err)
+	require.NoError(t, f.api.activateContract(f.ctx, active.ID, f.orgID, 1))
+	active.Status = "active"
+	// Explicit timestamps ensure the order does not depend on insertion timing.
+	_, err = testDB.Internal.Pool.Exec(f.ctx, `UPDATE contracts
+SET created_at = CASE WHEN id = $1 THEN '2020-01-01'::timestamptz WHEN id = $3 THEN '2020-01-03'::timestamptz ELSE '2020-01-02'::timestamptz END
+WHERE org_id = $2`, older.ID, f.orgID, active.ID)
+	require.NoError(t, err)
+
+	other := newContractFixture(t)
+	_, err = other.api.CreateContract(other.ctx, other.orgID, other.args)
+	require.NoError(t, err)
+
+	for _, tt := range []struct {
+		name, status string
+		want         []ContractModel
+	}{
+		{name: "drafts newest first and scoped to organization", status: "draft", want: []ContractModel{*newer, *older}},
+		{name: "active only", status: "active", want: []ContractModel{*active}},
+		{name: "no matching status", status: "deprecated", want: []ContractModel{}},
+		{name: "unknown status", status: "unknown", want: []ContractModel{}},
+		{name: "empty status lists all", status: "", want: []ContractModel{*active, *newer, *older}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := f.api.ListContracts(f.ctx, tt.status)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, result)
+		})
+	}
+}
+
+func TestListContractsEmptyOrganization(t *testing.T) {
+	f := newContractFixture(t)
+	result, err := f.api.ListContracts(f.ctx, "draft")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Empty(t, result)
+}
+
+func TestListContractsRejectsInvalidIdentity(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		org  any
+	}{
+		{name: "missing org"},
+		{name: "invalid org", org: pgtype.UUID{}},
+		{name: "wrong org type", org: "org"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := t.Context()
+			if tt.org != nil {
+				ctx = context.WithValue(ctx, "OrgID", tt.org)
+			}
+			// Identity validation must happen before accessing the database.
+			result, err := (&ContractApi{}).ListContracts(ctx, "draft")
+			require.Error(t, err)
+			require.Nil(t, result)
+		})
+	}
+}
+
+func TestListContractsCanceledRequest(t *testing.T) {
+	f := newContractFixture(t)
+	ctx, cancel := context.WithCancel(f.ctx)
+	cancel()
+	result, err := f.api.ListContracts(ctx, "draft")
+	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorContains(t, err, "list contracts:")
+	require.Nil(t, result)
+}
+
+func TestDeprecateContract(t *testing.T) {
+	for _, state := range []string{"active", "draft", "deprecated", "foreign organization", "missing", "missing organization", "missing user", "canceled"} {
+		t.Run(state, func(t *testing.T) {
+			f := newContractFixture(t)
+			created, err := f.api.initContractSnapshot(f.ctx, f.orgID, f.userID, f.args, f.snapshot)
+			require.NoError(t, err)
+			id, ctx := created.ContractID, f.ctx
+			status := "active"
+			if state == "draft" || state == "deprecated" {
+				status = state
+			}
+			_, err = testDB.Internal.Pool.Exec(f.ctx, "UPDATE contracts SET status=$2 WHERE id=$1", id, status)
+			require.NoError(t, err)
+			switch state {
+			case "foreign organization":
+				ctx = context.WithValue(ctx, "OrgID", pgtype.UUID{Bytes: uuid.New(), Valid: true})
+			case "missing":
+				id = pgtype.UUID{Bytes: uuid.New(), Valid: true}
+			case "missing organization":
+				ctx = context.WithValue(ctx, "OrgID", pgtype.UUID{})
+			case "missing user":
+				ctx = context.WithValue(t.Context(), "OrgID", f.orgID)
+			case "canceled":
+				canceled, cancel := context.WithCancel(ctx)
+				cancel()
+				ctx = canceled
+			}
+			err = f.api.DeprecateContract(ctx, id)
+			switch state {
+			case "active", "missing user":
+				require.NoError(t, err)
+			case "draft", "deprecated":
+				require.ErrorAs(t, err, new(*apperrors.ConflictError))
+			case "foreign organization", "missing":
+				require.ErrorAs(t, err, new(*apperrors.NotFoundError))
+			case "missing organization":
+				require.ErrorAs(t, err, new(*apperrors.BadRequestError))
+			default:
+				require.Error(t, err)
+			}
+			saved, err := f.queries.GetContract(f.ctx, sqlc.GetContractParams{ID: created.ContractID, OrgID: f.orgID})
+			require.NoError(t, err)
+			if state == "active" || state == "missing user" {
+				require.Equal(t, "deprecated", saved.Status)
+				require.True(t, saved.DeprecatedAt.Valid)
+			} else {
+				require.Equal(t, status, saved.Status)
+				require.False(t, saved.DeprecatedAt.Valid)
+			}
+			require.Equal(t, int32(1), saved.CurrentVersion)
+			versions, err := f.queries.ListContractVersions(f.ctx, created.ContractID)
+			require.NoError(t, err)
+			require.Len(t, versions, 1)
+		})
+	}
+}
+
+func TestActivateContractAddedColumn(t *testing.T) {
+	f := newContractFixture(t)
+	draft, err := f.api.InitContract(f.ctx, f.args)
+	require.NoError(t, err)
+	_, err = testDB.External.DB.ExecContext(f.ctx, `ALTER TABLE `+f.args.SchemaName+`.orders ADD COLUMN added_note text`)
+	require.NoError(t, err)
+	result, err := f.api.ActivateContract(f.ctx, ActivateContract{ID: draft.ContractID})
+	require.NoError(t, err)
+	require.Equal(t, draft.CurrentVersion, result.Version)
+	require.Empty(t, result.SnapshotChanges)
+	saved, err := f.api.GetContract(f.ctx, draft.ContractID)
+	require.NoError(t, err)
+	require.Equal(t, draft.CurrentVersion, saved.CurrentVersion)
+	require.Len(t, saved.Versions, 1)
+	require.Len(t, saved.Versions[0].Columns, len(f.snapshot.Columns))
+}
+
+func TestActivateContractNullSnapshot(t *testing.T) {
+	f := newContractFixture(t)
+	draft, err := f.api.InitContract(f.ctx, f.args)
+	require.NoError(t, err)
+	_, err = testDB.Internal.Pool.Exec(f.ctx, `UPDATE contract_versions SET schema_snapshot='null'::jsonb WHERE contract_id=$1`, draft.ContractID)
+	require.NoError(t, err)
+	result, err := f.api.ActivateContract(f.ctx, ActivateContract{ID: draft.ContractID})
+	require.ErrorContains(t, err, "snapshot is nil")
+	require.Nil(t, result)
+	saved, err := f.queries.GetContract(f.ctx, sqlc.GetContractParams{ID: draft.ContractID, OrgID: f.orgID})
+	require.NoError(t, err)
+	require.Equal(t, "draft", saved.Status)
+	require.False(t, saved.ActivatedAt.Valid)
 }

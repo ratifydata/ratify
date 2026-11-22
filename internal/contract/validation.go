@@ -53,6 +53,10 @@ func ValidateContractAgainstSchema(contractSchema []byte, live *schema.TableSnap
 // Changes follow persisted column order, then additions follow live column order.
 // Renaming a column is represented as a removal and an addition.
 func DiffSchema(prior, current *schema.TableSnapshot) ([]SnapshotConflict, error) {
+	_, err := indexSnapshot(prior)
+	if err != nil {
+		return nil, fmt.Errorf("prior snapshot: %w", err)
+	}
 	currentSnapshotColumns, err := indexSnapshot(current)
 	if err != nil {
 		return nil, err
@@ -76,7 +80,7 @@ func DiffSchema(prior, current *schema.TableSnapshot) ([]SnapshotConflict, error
 
 func indexSnapshot(snapshot *schema.TableSnapshot) (map[string]schema.TableData, error) {
 	if snapshot == nil {
-		return nil, fmt.Errorf(" snapshot is nil")
+		return nil, fmt.Errorf("snapshot is nil")
 	}
 	columns := make(map[string]schema.TableData, len(snapshot.Columns))
 	for _, column := range snapshot.Columns {
