@@ -48,16 +48,15 @@ func ListTables(ctx context.Context, db *sql.DB) ([]TableList, error) {
 	`
 	var tList []TableList
 	row, err := db.QueryContext(ctx, user_table_queries)
+	if err != nil {
+		return nil, err
+	}
 	defer func(row *sql.Rows) {
 		err = row.Close()
 		if err != nil {
 			slog.Error("failed to close user table", "err", err)
 		}
 	}(row)
-
-	if err != nil {
-		return nil, err
-	}
 
 	for row.Next() {
 		var t TableList

@@ -31,6 +31,7 @@ func newRootCmd() *cobra.Command {
 	bridge := NewBridge()
 	connectionCmd := NewConnectCmd(bridge)
 	accessCmd := NewAccessCmd(bridge)
+	contractCmd := NewContractCmd(bridge)
 	rootCmd := &cobra.Command{
 		Use:          "ratify",
 		Short:        "A data contract workflow engine",
@@ -44,6 +45,6 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 	rootCmd.PersistentFlags().String("api-url", "", "Ratify server URL (overrides RATIFY_API_URL and saved API_URL; default http://localhost:8080)")
-	rootCmd.AddCommand(connectionCmd.Connect(), authCmd, accessCmd.TeamCmd())
+	rootCmd.AddCommand(connectionCmd.Connect(), authCmd, accessCmd.TeamCmd(), contractCmd.Contract())
 	return rootCmd
 }

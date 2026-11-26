@@ -40,7 +40,7 @@ func TestDiffSchema(t *testing.T) {
 	}{
 		{"matching", []schema.TableData{id, note}, []schema.TableData{id, note}, []SnapshotConflict{}},
 		{"empty", nil, nil, []SnapshotConflict{}},
-		{"added columns ignored", []schema.TableData{id}, []schema.TableData{id, note}, []SnapshotConflict{}},
+		{"added", []schema.TableData{id}, []schema.TableData{id, note}, []SnapshotConflict{}},
 		{"removed", []schema.TableData{id, note}, []schema.TableData{id}, []SnapshotConflict{{ColumnName: "note", Mismatch: ColumnRemoved, Before: &note}}},
 		{"multiple changes", []schema.TableData{id, note}, []schema.TableData{changed}, []SnapshotConflict{
 			{ColumnName: "id", Mismatch: ColumnTypeChanged, Before: &id, After: &changed},
@@ -48,7 +48,7 @@ func TestDiffSchema(t *testing.T) {
 			{ColumnName: "note", Mismatch: ColumnRemoved, Before: &note},
 		}},
 		{"metadata ignored", []schema.TableData{id}, []schema.TableData{metadataChanged}, []SnapshotConflict{}},
-		{"renamed column removed", []schema.TableData{note}, []schema.TableData{renamed}, []SnapshotConflict{{ColumnName: "note", Mismatch: ColumnRemoved, Before: &note}}},
+		{"renamed", []schema.TableData{note}, []schema.TableData{renamed}, []SnapshotConflict{{ColumnName: "note", Mismatch: ColumnRemoved, Before: &note}}},
 		{"order ignored", []schema.TableData{id, note}, []schema.TableData{note, id}, []SnapshotConflict{}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -122,12 +122,19 @@ func TestValidationNilLiveSnapshot(t *testing.T) {
 }
 
 func TestValidateContractInvalidJSON(t *testing.T) {
-	for _, input := range []string{"", "{", "[]", `{"columns":"invalid"}`, `{"columns":[{"IsNullable":"YES"}]}`} {
+	for _, input := range []string{"", "null", "{", "[]", `{"columns":"invalid"}`, `{"columns":[{"IsNullable":"YES"}]}`} {
 		t.Run(input, func(t *testing.T) {
 			got, err := ValidateContractAgainstSchema([]byte(input), &schema.TableSnapshot{})
 			if err == nil || got != nil {
 				t.Fatalf("got %v, %v; want error", got, err)
 			}
 		})
+	}
+}
+
+func TestDiffSchemaNilPrior(t *testing.T) {
+	got, err := DiffSchema(nil, &schema.TableSnapshot{})
+	if err == nil || got != nil {
+		t.Fatalf("got %v, %v; want error", got, err)
 	}
 }

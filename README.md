@@ -191,13 +191,12 @@ underlying objects. Ratify reads `information_schema` and `pg_catalog`; it
 ### Create your first contract
 
 ```bash
-ratify contract create \
-  --connection production-db \
-  --schema public \
-  --table orders
+ratify contract create
 ```
 
-Ratify pre-populates the contract from your live schema. Review, describe, assign a producer team, and activate.
+Select a saved connection and producer team, then enter the schema (defaults to public), table, display name, optional description, and optional freshness SLA in whole hours (blank omits it; zero is accepted). This creates a draft contract.
+
+For scripts, supply `--connection-id`, `--team-id`, `--name`, `--schema`, and `--table`. Use `--interactive` to prompt while retaining supplied values. Prompts go to stderr, so `--output json` keeps stdout machine-readable.
 
 ### Raise a change proposal
 
